@@ -49,7 +49,34 @@ FM_ATTRS = {
     "TendencyToPunch": ("Punching (Tendency)", "Pun"), "Throwing": ("Throwing", "Thr"),
 }
 META = {"Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division", "Squad"}  # every other column is an attribute
-STAFF_META = {"Name", "Club", "Age", "Job", "Personality"}
+STAFF_META = {"Name", "Club", "Age", "Job", "Personality", "Team"}
+# FMTracker's staff attribute names -> the staff screenshots' column names (weights' [staff.*] use these)
+STAFF_ATTRS = {"Attacking": "Attacking", "Defending": "Defending", "CoachingFitness": "Fitness", "GoalkeepingCoaching": "Goalkeeping",
+               "Tactical": "Tactical", "Technical": "Technical", "Possession": "Possession", "SetPieces": "Set Pieces",
+               "WorkingWithYoungster": "Working With Youngsters", "Motivating": "Motivating", "Determination": "Determination",
+               "TacticalKnowledge": "Tactical Knowledge", "PeopleManagement": "People Management", "Authority": "Authority",
+               "JudgingPlayerAbility": "Judging Player Ability", "JudgingPlayerPotential": "Judging Player Potential",
+               "AnalysingData": "Analysing Data", "Physiotherapy": "Physiotherapy", "SportsScience": "Sports Science"}
+
+
+def staff_word(raw, words):
+    """A staff attribute as FMTracker gives it -> the word FM shows (a [staff_words] key): the word itself, or for a number
+    the word whose value is nearest. None if it's neither."""
+    if raw in words:
+        return raw
+    try:
+        v = float(str(raw).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:  # FM's scale is 1-20: 0 means not known
+        return None
+    return min(words, key=lambda w: abs(words[w] - v))
+
+
+# FM's staff departments, from the job title (first match wins; medical and scouting words are checked before "manager"/"coach")
+DEPARTMENTS = [("Medical", ("physio", "sports scien", "medic", "doctor", "nutrition", "rehab")),
+               ("Scouting", ("scout", "recruitment", "analyst", "director of football", "technical director", "loan")),
+               ("Coaching", ("manager", "coach", "assistant", "head of youth", "youth development", "set piece"))]
 LEFT_FOOTED = {"Fairly Strong", "Strong", "Very Strong"}
 PARTIAL_SQUAD = re.compile(r"-(u\d+s?|reserves|first-team)$")  # source of a youth/reserve squad screen: not the whole club
 SEARCH_MIN_WEIGHT = 2  # attributes weighted below this are left out of the filters page's search minimums
@@ -285,6 +312,7 @@ def import_fmtracker(config, cfg, obs_dir):
     """FMTracker snapshots of the managed club -> obs/<date>_fmtracker_{outfield,gk}.csv, so the squad pages update without
     screenshots: every game date not imported yet (the latest snapshot of each). Every team at the club and players out on
     loan; `Squad` is the plugin's team (FirstTeam, U21, U18, OnLoan)."""
+    staff_words = load_toml(ROOT / "weights" / f"{cfg['weights']}.toml").get("staff_words", {})
     latest = {}  # game date -> (path, snapshot), the newest file wins
     for path, snap in fmtracker_exports(config, cfg, "snapshot_*.json", "clubName"):
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", snap.get("inGameDate") or ""):
@@ -292,6 +320,36 @@ def import_fmtracker(config, cfg, obs_dir):
     for date, (path, snap) in sorted(latest.items()):
         if not (obs_dir / f"{date}_fmtracker_outfield.csv").exists():
             write_fmtracker_obs(cfg, obs_dir, date, path, snap)
+        staff_file = obs_dir.parent / "staff" / f"{date}_fmtracker.csv"
+        if snap.get("staff") and not staff_file.exists():
+            write_fmtracker_staff(cfg, staff_file, path, snap, staff_words)
+
+
+def write_fmtracker_staff(cfg, target, path, snap, words):
+    """The club's staff roster from a snapshot (FMTracker 0.3.5+): FM's job title and team for each. No attributes (those
+    come from staff screenshots), so it counts as the club's staff screen: who's there, and in which job."""
+    def team(s):
+        if s.get("squad") == "FirstTeam":
+            return "First team"
+        if s.get("squad") == "U18":
+            return "U18"
+        name = (s.get("teamName") or "").strip()
+        return "II" if name.endswith(" II") or name.endswith(" B") else "U21"
+    rows = []
+    for s in snap["staff"]:
+        if not s.get("name"):
+            continue
+        row = {"Name": s["name"], "Club": cfg["managed_club"], "Age": s.get("age") or "", "Job": s.get("job") or "",
+               "Personality": s.get("personality") or "", "Team": team(s)}
+        # staff attributes (plugin 0.3.6+), as the words FM shows
+        row.update({col: w for key, col in STAFF_ATTRS.items() if (w := staff_word((s.get("attributes") or {}).get(key), words))})
+        rows.append(row)
+    target.parent.mkdir(exist_ok=True)
+    with target.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=["Name", "Club", "Age", "Job", "Personality", "Team", *STAFF_ATTRS.values()])
+        w.writeheader()
+        w.writerows(sorted(rows, key=lambda r: (["First team", "II", "U21", "U18"].index(r["Team"]), r["Name"])))
+    print(f"[fmtracker] staff/{target.name}: {len(rows)} staff from {path.parent.name}/{path.name}")
 
 
 def write_fmtracker_obs(cfg, obs_dir, date, path, snap):
@@ -348,7 +406,16 @@ def compare(config, cfg):
     # Divisions above / below (FMTracker 0.3.3+, LeagueOtherDivisions): the club is compared against those clubs instead
     others = [{"competition": o.get("competition") or o.get("relation"), "relation": o.get("relation"), "clubs": clubs_of(o.get("clubs", []))}
               for o in export.get("otherCompetitions") or []]
+    # Staff (plugin 0.3.6+, LeagueStaff): each club's first-team staff, attributes as FM's words -> their [staff_words] values
+    words = load_toml(ROOT / "weights" / f"{cfg['weights']}.toml").get("staff_words", {})
+    staff = [{"name": c.get("name") or "?", "managed": bool(c.get("managed")),
+              "staff": [{"name": s.get("name"), "job": s.get("job"), "dept": department(s.get("job")),
+                         "a": {col: words[w] for key, col in STAFF_ATTRS.items()
+                               if (w := staff_word((s.get("attributes") or {}).get(key), words))}}
+                        for s in c.get("staff") or [] if s.get("name")]}
+             for c in export.get("clubs", [])]
     return {"source": str(path), "date": export.get("inGameDate"), "competition": export.get("competition"),
+            "staffClubs": [c for c in staff if c["staff"]],
             "managed": cfg["managed_club"], "clubs": clubs_of(export.get("clubs", [])),
             "others": [o for o in others if o["clubs"]], "attrs": FM_ATTRS}
 
@@ -445,7 +512,7 @@ def load_staff(staff_dir, words):
         p["files"].add(path.name)
         snap = p["dates"].setdefault(path.stem[:10], {"attrs": {}})
         snap.update(club=row["Club"], age=int(row["Age"]) if row.get("Age") else None,
-                    job=row.get("Job") or None, personality=row.get("Personality") or None)
+                    job=row.get("Job") or None, personality=row.get("Personality") or None, team=row.get("Team") or None)
         for k, v in row.items():
             if k not in STAFF_META and v:  # blank = unreadable
                 if v not in words:
@@ -456,7 +523,7 @@ def load_staff(staff_dir, words):
 
 def staff_row(name, p, roles):
     """A staff member's latest state and role scores, plus their history by observation date."""
-    history, known = [], {"job": None, "personality": None}
+    history, known = [], {"job": None, "personality": None, "team": None}
     for date, snap, attrs in timeline(p["dates"]):
         known.update({k: snap[k] for k in known if snap[k]})
         scores = weighted(attrs, roles)
@@ -464,12 +531,20 @@ def staff_row(name, p, roles):
         history.append({"date": date, "club": snap["club"], "age": snap["age"], **scores,
                         "best": best, "score": scores.get(best), "attrs": attrs})
     latest = history[-1]
-    return {"name": name, **{k: v for k, v in latest.items() if k not in ("date", "attrs")}, **known, "history": history}
+    return {"name": name, **{k: v for k, v in latest.items() if k not in ("date", "attrs")}, **known,
+            "dept": department(known["job"]), "history": history}
+
+
+def department(job):
+    """'Head Physio' -> 'Medical', 'Chief Scout' -> 'Scouting', 'Under 18s Manager' -> 'Coaching'; None if unknown (e.g. 'Head of…')."""
+    j = (job or "").lower()
+    return next((dept for dept, words in DEPARTMENTS if any(w in j for w in words)), None)
 
 
 def staff_cols(roles):
     return [{"key": "name", "label": "Name"}, {"key": "club", "label": "Club"}, {"key": "age", "label": "Age", "num": True},
-            {"key": "job", "label": "Job"}, {"key": "personality", "label": "Personality"},
+            {"key": "job", "label": "Job"}, {"key": "dept", "label": "Dept"}, {"key": "team", "label": "Team"},
+            {"key": "personality", "label": "Personality"},
             *({"key": r, "label": r, "num": True, "fmt": "f1"} for r in roles)]
 
 
@@ -557,6 +632,10 @@ def build(save, config):
     club_dates = [f[:10] for p in staff.values() for f in p["files"]
                   if not f[11:].startswith("search-") and p["dates"][f[:10]]["club"] == managed]
     club_staff = [r for r in staff_rows if r["club"] == managed and r["history"][-1]["date"] >= max(club_dates, default="")]
+    # ...and, as for players, staff at the club in an older staff screen but missing from the latest have left
+    for r in staff_rows:
+        if r["club"] == managed and r["history"][-1]["date"] < max(club_dates, default=""):
+            r["club"], r["team"] = f"left {managed}", None
 
     return cfg, {
         # page 1: the first team and players on loan in or out (youth and B team are on the grid); unknown team = shown

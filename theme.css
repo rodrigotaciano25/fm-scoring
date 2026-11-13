@@ -1,10 +1,14 @@
-  /* Omarchy / Tokyo Night: shared by template.html and charts.html (score.py inlines it into each page) */
-  :root { --bg: #1a1b26; --desk: #16161e; --fg: #c0caf5; --line: #3b4261; --hover: #292e42; --dim: #565f89;
-          --blue: #7aa2f7; --purple: #bb9af7; --cyan: #7dcfff;
-          --green: #9ece6a; --yellow: #e0af68; --orange: #ff9e64; --red: #f7768e; }
+  /* Pitch black: shared by every page (score.py inlines it into each one).
+     --desk = page, --bg = panels; --accent = the one interface highlight (active tab, sort, selection);
+     the other colours carry meaning in tables and charts (score tiers red..green, blue = league, orange = your club). */
+  :root { --bg: #14171c; --desk: #0b0d10; --fg: #e6e8eb; --line: #262b33; --hover: #1c2128; --dim: #7d8590;
+          --accent: #3ddc84; --accent-ink: #06210f;
+          --blue: #4d8dff; --purple: #b8bcc6; --cyan: #4cc9f0;
+          --green: #3ddc84; --yellow: #f2c94c; --orange: #ff9f43; --red: #ff6b6b; }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 10px; background: var(--desk); color: var(--fg);
-         font: 13px/1.6 "CaskaydiaMono Nerd Font", "Cascadia Mono", "JetBrains Mono", monospace; }
+         font: 13px/1.6 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
   .bar { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; }
   .pages a { color: var(--dim); text-decoration: none; padding: 1px 8px; }
-  .pages a.on { color: var(--desk); background: var(--blue); font-weight: 700; }
+  .pages a { border-radius: 4px; }
+  .pages a.on { color: var(--accent-ink); background: var(--accent); font-weight: 700; }

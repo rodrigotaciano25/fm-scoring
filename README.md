@@ -181,11 +181,11 @@ Press the number keys to move between pages, and **?** on any page for its keybo
 | 4 | Last | Just the players from your latest screenshots |
 | 5 | Filters | Your best players per position, and minimum attributes to search FM for players better than them |
 | 6 | Charts | Your squad against a whole league: scores, wages, ratings and pace |
-| 7 | Staff | Every staff member you've screenshotted, scored for each job |
+| 7 | Staff | Every staff member you've screenshotted (and, with the plugin, your whole club's staff), scored for each job; filter by department (Coaching / Scouting / Medical) and team (First team / II / U18) |
 | 8 | Last staff | Just the staff from your latest staff screenshots |
 | 9 | Staff filters | Your best staff per job, and minimum attributes to search FM for staff better than them |
 | 0 | Settings | Your club, division and other settings |
-| - | Compare | Your squad's average attributes against every club in your league, like FM24's Team Report > Comparison (needs the FMTracker plugin, below) |
+| - | Compare | Your squad's average attributes against every club in your league, like FM24's Team Report > Comparison, and (staff) your coaching, recruitment and medical staff against theirs (needs the FMTracker plugin, below) |
 
 A green arrow after a name means the player has gained 3+ points in the attributes we score in the last 6 months (or 5+ in 12 months);
 a red one, lost as many. Hover for the details, or type `rising` / `falling` in the filter box.
@@ -199,7 +199,8 @@ To open the pages yourself, ask your assistant to "open my squad page".
 
 This page needs no screenshots: a small game plugin, FMTracker, reads every squad in your league by itself. Windows only.
 The same plugin also keeps **your own squad** up to date: every time you run score.py, it adds the plugin's latest snapshot of
-your club (all attributes, foot, wage, value, loans) as if you'd taken squad screenshots. You only need screenshots for players at other clubs.
+your club (all attributes, foot, wage, value, loans) as if you'd taken squad screenshots, and your club's staff (job, team and staff attributes).
+You only need screenshots for players and staff at other clubs.
 
 1. Install **BepInEx 6, IL2CPP, win-x64** (from [BepInEx's builds](https://builds.bepinex.dev/projects/bepinex_be)) into
    FM27's folder (`C:\Program Files (x86)\Steam\steamapps\common\Football Manager 27`): unzip it so `winhttp.dll` sits next to `fm.exe`.

@@ -12,7 +12,8 @@ transcribes them to CSV. `score.py` turns those into eleven pages per save (keys
 5. **filters**: per position, the squad's best players and suggested minimums for FM's player search
 6. **charts**: players with a match rating (a league-wide search) by position: role scores, score vs wage,
    score vs average rating, and Acceleration, Pace, Jumping Reach or Agility (a toggle; Agility is keepers only) by position and vs rating, with the squad overlaid
-7. **staff**: every staff member observed, scored for each role (manager, coach groups, scout, physio…)
+7. **staff**: every staff member observed, scored for each role (manager, coach groups, scout, physio…), with department
+   (Coaching / Scouting / Medical, from the job title: `DEPARTMENTS`) and, for the club's staff, team (First team / II / U18) buttons
 8. **last_staff**: just the staff from the most recent set of staff screenshots
 9. **staff_filters**: per staff role, the club's best staff and suggested minimums (as FM's words) for FM's staff search
 0. **settings**: what's in `config.toml` and the save's `save.toml`
@@ -49,6 +50,8 @@ of the managed club (every team at the club, plus players out on loan) to `obs/<
 as a full squad screen. It has every attribute, plus Left Foot, Wage and Transfer Value from plugin 0.3.2 on (older snapshots leave them blank, and the
 previous values carry forward). Loan: `in` when away from their contract club with one of ours as the loan club, `out` when on loan elsewhere.
 Commit the new files like any observation. Screenshots are still how players at other clubs get in (searches, shortlists).
+From plugin 0.3.5 on, it also writes `staff/<date>_fmtracker.csv`: the club's staff roster (FM's job title and `Team` for each), and from 0.3.6
+its staff attributes too (FM gives numbers 1-20, 0 = not known; written as the nearest `[staff_words]` word, as a screenshot would show; `STAFF_ATTRS`). It counts as the club's staff screen: club staff missing from it show as `left <club>`.
 
 ## Adding screenshots
 
@@ -160,6 +163,8 @@ If FM renames an attribute, use the new name in the CSV header and in the weight
   **Against** (plugin 0.3.3+, `LeagueOtherDivisions` in the plugin's cfg, default `upper,lower`): the divisions above / below the club's
   (its first team's UpperDivision / LowerDivision, every team in their TeamList). There, the club is ranked among that league's clubs, the
   league's range and average come from its own clubs only, and a column stretches to include the club when it's outside that range (dashed = the league's range).
+  **Staff mode** (plugin 0.3.6+, `LeagueStaff`): FM24's staff screen comparisons, each club's first-team staff averaged per department
+  (Coaching / Recruitment / Medical tabs; department from the job title) on the same chart. Always within the club's own league.
 - **Filters page:** the squad's top 3 per position (top 1 for GK). **Search ≥** = their rounded average
   for attributes weighted ≥ 2 (`SEARCH_MIN_WEIGHT`), for use as minimums in FM's search.
 - **Staff filters page:** the same per staff role: the top 3 of the managed club's staff (at the club in its latest staff

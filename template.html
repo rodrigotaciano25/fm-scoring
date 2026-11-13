@@ -5,27 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 __THEME__
   #filter { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: transparent;
             border: 0; border-bottom: 1px solid var(--line); padding: 2px 4px; outline: none; }
-  #filter:focus { border-bottom-color: var(--cyan); }
+  #filter:focus { border-bottom-color: var(--accent); }
+  .bar { flex-wrap: wrap; row-gap: 6px; }
+  .pages { white-space: nowrap; }
+  #filter { min-width: 220px; }
+  .seg { display: flex; gap: 2px; align-items: center; white-space: nowrap; }
+  .seg .lbl { color: var(--dim); margin-right: 4px; }
+  .seg button { font: inherit; color: var(--dim); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 0 8px; cursor: pointer; }
+  .seg button.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 700; }
   #filter.bad { border-bottom-color: var(--red); }
   #filter::placeholder { color: var(--dim); }
   #count { color: var(--dim); }
   #count.copied { color: var(--green); }
-  .tile { background: var(--bg); border: 2px solid var(--blue); padding: 12px 14px; overflow-x: auto; }
+  .tile { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
   th, td { padding: 5px 10px; white-space: nowrap; text-align: left; }
   th.num, td.num { text-align: right; }
-  th { cursor: pointer; user-select: none; font-weight: normal; color: var(--purple); border-bottom: 1px solid var(--line); }
-  th.sorted { color: var(--cyan); }
+  th { cursor: pointer; user-select: none; font-weight: 500; color: var(--dim); border-bottom: 1px solid var(--line); }
+  th.sorted { color: var(--accent); }
   th.curcol { text-decoration: underline; text-underline-offset: 4px; }
   th.desc::after { content: " ↓"; } th.asc::after { content: " ↑"; }
   tbody tr:nth-child(even) td { background: #1f2131; }
   tr:hover td, tr.currow td { background: var(--hover); }
-  td.cur { outline: 1px solid var(--cyan); outline-offset: -1px; }
+  td.cur { outline: 1px solid var(--accent); outline-offset: -1px; }
   td.text { color: var(--purple); }
   .loan { font-size: 11px; margin-left: 6px; user-select: none; } .loan.in { color: var(--blue); } .loan.out { color: var(--red); } .loan.trial { color: var(--yellow); }
   td.dim, .sub { color: var(--dim); }
@@ -33,9 +40,9 @@ __THEME__
   .t3 { color: var(--cyan); } .t4 { color: var(--green); }
   .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   @media (max-width: 900px) { .tiles { grid-template-columns: minmax(0, 1fr); } }
-  .ttitle { color: var(--cyan); font-weight: 700; margin-bottom: 6px; }
+  .ttitle { color: var(--fg); font-weight: 700; margin-bottom: 6px; }
   .tiles th { cursor: default; vertical-align: bottom; }
-  .tiles td.search { color: var(--cyan); font-weight: 700; }
+  .tiles td.search { color: var(--accent); font-weight: 700; }
   .tiles tr.minor td { opacity: .45; }
   #help, #detail { display: none; position: fixed; inset: 0; background: #16161ecc; align-items: center; justify-content: center; z-index: 10; }
   #help.show, #detail.show { display: flex; }
@@ -52,7 +59,7 @@ __THEME__
   #detail th.group { text-align: center; color: var(--dim); font-weight: normal; }
   #detail th.ago { color: var(--dim); font-weight: normal; border-bottom: 0; padding-bottom: 0; }
   #help .tile { width: min(620px, calc(100vw - 32px)); }
-  #help td:first-child { color: var(--cyan); }
+  #help td:first-child { color: var(--accent); }
   #help b { color: var(--fg); font-weight: normal; }
   #help .sub { white-space: normal; padding-top: 10px; }
   .helphint { color: var(--dim); text-decoration: none; white-space: nowrap; }
@@ -61,21 +68,23 @@ __THEME__
   /* Grid page: formation slots × senior then youth depth */
   #main.grid table { width: auto; }
   #main.grid td { padding: 5px 14px; }
-  #main.grid th { cursor: default; color: var(--purple); }
+  #main.grid th { cursor: default; color: var(--dim); }
   #main.grid th.group { color: var(--dim); text-align: left; border-bottom: 0; }
-  #main.grid td.slot { color: var(--cyan); }
+  #main.grid td.slot { color: var(--fg); font-weight: 600; }
   #main.grid .split { border-left: 1px solid var(--line); }
   #main.grid .v { margin-left: 6px; }
   #main.grid .age { color: var(--dim); font-size: 11px; margin-left: 6px; }
   #main.grid [data-name] { cursor: pointer; }
   #main.grid .foot { color: var(--yellow); font-size: 11px; margin-left: 5px; }
-  #main.grid div.cur { outline: 1px solid var(--cyan); outline-offset: 2px; }
+  #main.grid div.cur { outline: 1px solid var(--accent); outline-offset: 2px; }
   #main.grid .notes { margin-top: 12px; white-space: normal; line-height: 1.7; }
 </style>
 </head>
 <body>
 <div class="bar">
   <span class="pages">__NAV__</span>
+  <span class="seg" id="deptSeg" hidden></span>
+  <span class="seg" id="teamSeg" hidden></span>
   <input id="filter" placeholder="/ filter  e.g. age<=24 best=CB vs>=90 left=yes" spellcheck="false" autocomplete="off">
   <span id="count"></span>
   <a class="helphint" href="#" id="helphint"><b>?</b> keyboard shortcuts</a>
@@ -122,15 +131,30 @@ const ALIASES = { lefty: "left", leftfoot: "left", player: "name", pos: "best", 
 const STORE = "fm:__SAVE__:" + PAGE;
 const input = document.getElementById("filter"), help = document.getElementById("help"), detail = document.getElementById("detail");
 let sortKey = COLS.some(c => c.key === "vsAge") ? "vsAge" : COLS.find(c => c.num && c.fmt)?.key, dir = -1, cur = { r: 0, c: 0 }, view = [];
+// Staff pages: department (FM's Coaching / Scouting / Medical) and team (First team / II / U18) buttons; "" = all
+const STAFF = PAGE === "staff" || PAGE === "last_staff";
+let dept = "", team = "";
 
 try {
   const s = JSON.parse(localStorage.getItem(STORE) || "{}");
   if (s.sortKey && COLS.some(c => c.key === s.sortKey)) ({ sortKey, dir } = s);
   input.value = s.q || "";
+  dept = s.dept || ""; team = s.team || "";
 } catch (e) {}
 function save() {
-  try { localStorage.setItem(STORE, JSON.stringify({ sortKey, dir, q: input.value })); } catch (e) {}
+  try { localStorage.setItem(STORE, JSON.stringify({ sortKey, dir, q: input.value, dept, team })); } catch (e) {}
 }
+
+// One segmented control: label, the values present in DATA[key] (in `order`), and the current choice
+function staffSeg(id, label, key, order, get, set) {
+  const box = document.getElementById(id), present = order.filter(v => DATA.some(r => r[key] === v));
+  if (!STAFF || !present.length) { box.hidden = true; return; }  // e.g. no team data yet: no team buttons
+  box.hidden = false;
+  box.innerHTML = `<span class="lbl">${label}</span>` + ["", ...present].map(v =>
+    `<button data-v="${v}" class="${v === get() ? "on" : ""}">${v || "all"}</button>`).join("");
+  box.querySelectorAll("button").forEach(b => b.onclick = () => { set(b.dataset.v); render(); });
+}
+const staffOk = r => !STAFF || ((!dept || r.dept === dept) && (!team || r.team === team));
 
 function tier(v, [lo, hi]) {
   return "t" + Math.max(0, Math.min(4, Math.floor((v - lo) / (hi - lo) * 5)));
@@ -181,7 +205,11 @@ const trendArrow = r => r.trend ? `<span class="trend ${r.trend.net > 0 ? "t4 up
 function render() {
   const { tests, bad } = parseFilter(input.value);
   input.classList.toggle("bad", bad);
-  view = DATA.filter(r => tests.every(t => t(r))).sort((a, b) => {
+  if (STAFF) {
+    staffSeg("deptSeg", "dept", "dept", ["Coaching", "Scouting", "Medical"], () => dept, v => dept = v);
+    staffSeg("teamSeg", "team", "team", ["First team", "II", "U21", "U18"], () => team, v => team = v);
+  }
+  view = DATA.filter(r => staffOk(r) && tests.every(t => t(r))).sort((a, b) => {
     const x = a[sortKey], y = b[sortKey];
     if (x == null || y == null) return (x == null) - (y == null);  // blanks always last
     return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * dir;

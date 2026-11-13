@@ -5,24 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 __THEME__
   .bar { flex-wrap: wrap; }
   .seg { display: flex; gap: 2px; align-items: center; }
   .seg .lbl { color: var(--dim); margin-right: 4px; }
   .seg button { font: inherit; color: var(--dim); background: transparent; border: 1px solid var(--line); padding: 0 8px; cursor: pointer; }
-  .seg button.on { color: var(--desk); background: var(--cyan); border-color: var(--cyan); font-weight: 700; }
+  .seg button.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 700; }
   .seg label { color: var(--fg); margin-right: 10px; cursor: pointer; }
   .seg label.off { color: var(--dim); }
   select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); padding: 0 4px; }
-  .tile { background: var(--bg); border: 2px solid var(--blue); padding: 12px 14px; min-width: 0; margin-bottom: 10px; }
-  .ttitle { color: var(--cyan); font-weight: 700; }
+  .tile { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; margin-bottom: 10px; }
+  .ttitle { color: var(--fg); font-weight: 700; }
   .tsub { color: var(--dim); font-size: 12px; margin-bottom: 6px; }
   .tsub b { color: var(--fg); font-weight: normal; }
   .empty { color: var(--dim); padding: 30px 0; }
   .empty code { color: var(--fg); }
-  svg { display: block; width: 100%; overflow: visible; font: 11px "JetBrains Mono", monospace; }
+  svg { display: block; width: 100%; overflow: visible; font: 11px "Inter", system-ui, sans-serif; }
   .band { fill: var(--line); fill-opacity: .18; }
   .edge { stroke-width: 1.5; } .edge.hi { stroke: var(--green); } .edge.lo { stroke: var(--blue); }
   .edge-label { font-size: 11px; } .edge-label.hi { fill: var(--green); } .edge-label.lo { fill: var(--blue); }
@@ -34,7 +34,7 @@ __THEME__
   .avg { stroke: var(--fg); stroke-width: 2; stroke-opacity: .85; }
   .range { stroke-width: 2; stroke-dasharray: 4 3; } .range.lo { stroke: var(--blue); } .range.hi { stroke: var(--green); }
   .val { fill: var(--fg); font-weight: 700; font-size: 11px; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
-  .xl { fill: var(--dim); font-size: 11px; } .col:hover .xl { fill: var(--cyan); }
+  .xl { fill: var(--dim); font-size: 11px; } .col:hover .xl { fill: var(--accent); }
   table.rank { border-collapse: collapse; width: 100%; font-size: 12px; }
   table.rank th { color: var(--dim); font-weight: normal; text-align: right; padding: 0 6px; white-space: nowrap; }
   table.rank th:first-child, table.rank td:first-child { text-align: left; }
@@ -45,13 +45,14 @@ __THEME__
   .scroll { overflow-x: auto; }
   #tip { position: fixed; pointer-events: none; background: var(--desk); border: 1px solid var(--line); padding: 6px 10px;
          display: none; z-index: 5; font-size: 12px; line-height: 1.5; white-space: nowrap; }
-  #tip .nm { color: var(--cyan); font-weight: 700; } #tip .d { color: var(--dim); }
+  #tip .nm { color: var(--fg); font-weight: 700; } #tip .d { color: var(--dim); }
   #tip .g { color: var(--green); } #tip .r { color: var(--red); }
 </style>
 </head>
 <body>
 <div class="bar">
   <span class="pages">__NAV__</span>
+  <span class="seg" id="mode"></span>
   <span class="seg"><span class="lbl">against</span><select id="league"></select></span>
   <span class="seg"><span class="lbl">club</span><select id="club"></select></span>
   <span class="seg" id="tabs"></span>
@@ -80,7 +81,7 @@ const GKA = ["AerialReach", "CommandOfArea", "Communication", "Eccentricity", "H
 const mean = vs => vs.length ? vs.reduce((s, v) => s + v, 0) / vs.length : null;
 // Tabs as in FM's Team Report > Comparison. "groups": which position groups the tab is about (null = the checkboxes).
 // Overview's columns are categories: each one the average of its attributes.
-const TABS = {
+const PLAYER_TABS = {
   Overview: { cats: { Technical: TECH, Mental: MENT, Physical: PHYS, Goalkeeping: GKA } },
   Goalkeepers: { attrs: [...GKA.filter(a => a !== "TendencyToPunch"), "Agility", "Decisions", "Concentration", "Positioning"], groups: ["GK"] },
   Defence: { attrs: ["Marking", "Tackling", "Positioning", "Heading", "JumpingReach", "Strength", "Bravery", "Concentration",
@@ -98,12 +99,27 @@ const MINE = DATA.clubs.find(c => c.managed);
 const LEAGUES = [{ key: "own", name: DATA.competition, clubs: DATA.clubs },
   ...(DATA.others || []).map(o => ({ key: o.relation, name: o.competition, relation: o.relation,
     clubs: [...o.clubs.filter(c => c.name !== MINE?.name), ...(MINE ? [{ ...MINE, guest: true }] : [])] }))];
-const state = { club: DATA.managed, tab: "Overview", groups: ["DEF", "MID", "ATT"], league: "own" };
+// Staff mode: FM24's staff screen comparisons. Each tab averages one department's first-team staff (by job title).
+const STAFF_TABS = {
+  Coaching: { dept: "Coaching", attrs: ["Attacking", "Defending", "Fitness", "Goalkeeping", "Tactical", "Technical", "Possession",
+    "Set Pieces", "Working With Youngsters", "Motivating", "Determination", "Tactical Knowledge", "People Management"] },
+  Recruitment: { dept: "Scouting", attrs: ["Judging Player Ability", "Judging Player Potential", "Analysing Data", "Tactical Knowledge", "Determination"] },
+  Medical: { dept: "Medical", attrs: ["Physiotherapy", "Sports Science", "Determination"] },
+};
+const STAFF_SHORT = { Attacking: "Att", Defending: "Def", Fitness: "Fit", Goalkeeping: "GK", Tactical: "Tac", Technical: "Tec",
+  Possession: "Pos", "Set Pieces": "SPC", "Working With Youngsters": "Yng", Motivating: "Mot", Determination: "Det",
+  "Tactical Knowledge": "TCo", "People Management": "Mgm", "Judging Player Ability": "JPA", "Judging Player Potential": "JPP",
+  "Analysing Data": "AnD", Physiotherapy: "Phy", "Sports Science": "SpS" };
+const state = { club: DATA.managed, tab: "Overview", groups: ["DEF", "MID", "ATT"], league: "own", mode: "players" };
 try { Object.assign(state, JSON.parse(localStorage.getItem(STORE)) || {}); } catch (e) {}
 const save = () => { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) {} };
 const set = (k, v) => { state[k] = v; save(); render(); };
-const league = () => LEAGUES.find(l => l.key === state.league) || LEAGUES[0];
-const CLUBS = () => league().clubs;
+// staff mode always compares within your own league
+const league = () => (state.mode !== "staff" && LEAGUES.find(l => l.key === state.league)) || LEAGUES[0];
+const GUEST = () => league().key !== "own";
+const STAFFMODE = () => state.mode === "staff";
+const TABS = () => STAFFMODE() ? STAFF_TABS : PLAYER_TABS;
+const CLUBS = () => STAFFMODE() ? (DATA.staffClubs || []) : league().clubs;
 
 const NS = "http://www.w3.org/2000/svg";
 const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent?.appendChild(e); return e; };
@@ -112,7 +128,12 @@ const ord = n => n + (Math.floor(n / 10) % 10 === 1 ? "th" : { 1: "st", 2: "nd",
 
 /** Columns of the current tab: [{ key, label, name, value(club) }]. */
 function columns() {
-  const tab = TABS[state.tab], groups = tab.groups || state.groups;
+  if (STAFFMODE()) {
+    const tab = STAFF_TABS[state.tab];
+    return tab.attrs.map(a => ({ key: a, label: STAFF_SHORT[a] || a, name: a,
+      value: c => mean(c.staff.filter(s => s.dept === tab.dept).map(s => s.a[a]).filter(v => v != null)) }));
+  }
+  const tab = TABS()[state.tab], groups = tab.groups || state.groups;
   const players = c => c.players.filter(p => p.groups.some(g => groups.includes(g)));
   if (tab.cats) return Object.entries(tab.cats)
     .filter(([cat]) => cat === "Goalkeeping" ? groups.includes("GK") : groups.some(g => g !== "GK"))
@@ -128,7 +149,7 @@ function stats(cols) {
   return cols.map(col => {
     const per = CLUBS().map(c => ({ club: c.name, v: col.value(c) })).filter(x => x.v != null).sort((a, b) => b.v - a.v);
     // Another division: the league's range and average come from its own clubs (the managed club is a guest in the ranking)
-    const league = per.filter(x => !(x.club === DATA.managed && state.league !== "own"));
+    const league = per.filter(x => !(x.club === DATA.managed && GUEST()));
     return { ...col, per, avg: mean(league.map(x => x.v)), hi: league[0]?.v, lo: league[league.length - 1]?.v };
   });
 }
@@ -156,7 +177,7 @@ function chart(ss) {
   el("line", { x1: L, x2: W - R, y1: top, y2: top, class: "edge hi" }, svg);
   el("line", { x1: L, x2: W - R, y1: bottom, y2: bottom, class: "edge lo" }, svg);
   const comp = league().name || "the league";
-  const guest = state.league !== "own", also = guest ? ` (or ${state.club}) · dashed = ${comp}'s own range` : "";
+  const guest = GUEST(), also = guest ? ` (or ${state.club}) · dashed = ${comp}'s own range` : "";
   el("text", { x: W / 2, y: top - 6, "text-anchor": "middle", class: "edge-label hi" }, svg).textContent = `highest average in ${comp}${also}`;
   el("text", { x: W / 2, y: bottom + 34, "text-anchor": "middle", class: "edge-label lo" }, svg).textContent = `lowest average in ${comp}${also}`;
   const n = ss.length, slot = (W - L - R) / n, bw = Math.min(slot * 0.62, 90);
@@ -201,16 +222,23 @@ function controls() {
   sel.innerHTML = CLUBS().map(c => c.name).sort().map(c => `<option${c === state.club ? " selected" : ""}>${c}</option>`).join("");
   sel.onchange = () => set("club", sel.value);
   const lsel = document.getElementById("league");
-  lsel.parentElement.style.display = LEAGUES.length > 1 ? "" : "none";
+  lsel.parentElement.style.display = LEAGUES.length > 1 && !STAFFMODE() ? "" : "none";
+  const mode = document.getElementById("mode"); mode.innerHTML = "";
+  for (const [m, label] of [["players", "players"], ["staff", "staff"]]) {
+    const b = document.createElement("button"); b.textContent = label; if (m === state.mode) b.className = "on";
+    b.onclick = () => { state.mode = m; state.tab = Object.keys(TABS())[0]; if (m === "staff") state.club = DATA.managed; save(); render(); };
+    mode.appendChild(b);
+  }
   lsel.innerHTML = LEAGUES.map(l => `<option value="${l.key}"${l.key === league().key ? " selected" : ""}>${l.name}${l.relation ? ` (${l.relation === "upper" ? "division above" : "division below"})` : " (yours)"}</option>`).join("");
   lsel.onchange = () => { state.league = lsel.value; if (lsel.value !== "own") state.club = DATA.managed; save(); render(); };
   const tabs = document.getElementById("tabs"); tabs.innerHTML = "";
-  for (const t of Object.keys(TABS)) {
+  for (const t of Object.keys(TABS())) {
     const b = document.createElement("button"); b.textContent = t; if (t === state.tab) b.className = "on";
     b.onclick = () => set("tab", t); tabs.appendChild(b);
   }
   const gs = document.getElementById("groups"); gs.querySelectorAll("label").forEach(l => l.remove());
-  const fixed = TABS[state.tab].groups;
+  gs.style.display = STAFFMODE() ? "none" : "";
+  const fixed = TABS()[state.tab].groups;
   for (const [g, name] of Object.entries(GROUPS)) {
     const on = (fixed || state.groups).includes(g), l = document.createElement("label");
     l.innerHTML = `<input type="checkbox"${on ? " checked" : ""}${fixed ? " disabled" : ""}> ${name}`;
@@ -221,6 +249,15 @@ function controls() {
 }
 
 function render() {
+  if (!TABS()[state.tab]) state.tab = Object.keys(TABS())[0];
+  if (STAFFMODE() && !CLUBS().length) {
+    controls();
+    document.getElementById("title").textContent = "Staff comparison";
+    document.getElementById("sub").innerHTML = "";
+    document.getElementById("chart").innerHTML = `<div class="empty">No league staff yet: FMTracker 0.3.6+ reads every league club's staff in its weekly league read (or press F9), then run score.py again.</div>`;
+    document.getElementById("table").innerHTML = "";
+    return;
+  }
   if (!CLUBS().length) {
     document.querySelector(".tile").innerHTML = `<div class="empty">No league squads yet. FMTracker writes them by itself
       (after its weekly snapshot) to <code>&lt;FM&gt;/BepInEx/fmtracker/saves/&lt;save&gt;/league/</code>; then run score.py again.<br>Looked in: <code>${DATA.source}</code></div>`;
@@ -230,13 +267,15 @@ function render() {
   if (!CLUBS().some(c => c.name === state.club)) state.club = (CLUBS().find(c => c.managed) || CLUBS()[0]).name;
   controls();
   const ss = stats(columns()).filter(s => s.per.length);
-  const club = CLUBS().find(c => c.name === state.club), groups = TABS[state.tab].groups || state.groups;
-  const n = club.players.filter(p => p.groups.some(g => groups.includes(g))).length;
+  const club = CLUBS().find(c => c.name === state.club), groups = TABS()[state.tab].groups || state.groups;
+  const n = STAFFMODE() ? club.staff.filter(s => s.dept === STAFF_TABS[state.tab].dept).length
+                        : club.players.filter(p => p.groups.some(g => groups.includes(g))).length;
   document.getElementById("title").textContent = `${state.club} · ${state.tab}`;
   const l = league();
   document.getElementById("sub").innerHTML = (l.relation ? `<b>${DATA.managed}</b> ranked among the clubs of ${l.name} (the division ${l.relation === "upper" ? "above" : "below"}) · ` : "") +
     `${l.name} · ${CLUBS().length} clubs · first-team squads on <b>${DATA.date}</b> · ` +
-    `${n} ${state.club} players · bar = club average, white line = league average · hover a column for best / worst`;
+    `${n} ${state.club} ${STAFFMODE() ? STAFF_TABS[state.tab].dept.toLowerCase() + " staff (first team)" : "players"} · ` +
+    `bar = club average, white line = league average · hover a column for best / worst`;
   if (!ss.length) { document.getElementById("chart").innerHTML = `<div class="empty">No players in the selected positions.</div>`; }
   else chart(ss);
   table(ss);
@@ -246,7 +285,7 @@ document.addEventListener("keydown", e => {
   if (e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === "SELECT") return;
   if (SITE.pages[e.key] && SITE.pages[e.key] !== "compare") location.href = SITE.pages[e.key] + ".html";
   if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-    const t = Object.keys(TABS), i = t.indexOf(state.tab) + (e.key === "ArrowRight" ? 1 : -1);
+    const t = Object.keys(TABS()), i = t.indexOf(state.tab) + (e.key === "ArrowRight" ? 1 : -1);
     set("tab", t[(i + t.length) % t.length]);
   }
 });
