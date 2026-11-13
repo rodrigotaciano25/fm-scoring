@@ -217,6 +217,28 @@ The plugin is built for one FM27 version; after a big FM update it may need rebu
 delete BepInEx: reinstall it and the plugin if the page stops updating. If FM isn't installed in Steam's default folder,
 add `fmtracker_dir = "<FM folder>/BepInEx/fmtracker"` to `config.toml`.
 
+#### Upgrading the plugin
+
+No new save setup is needed: your save, `save.toml` and screenshot data stay as they are.
+
+1. Close FM and replace `BepInEx\plugins\FMTracker\FMTracker.dll` with the one from the
+   [latest release](https://github.com/rodrigotaciano25/fm-scoring/releases/latest).
+2. Open `BepInEx\config\roman.fmtracker.cfg` and check it says `UseMockData = false`. Plugins from before 0.3 defaulted to
+   `true` (fake test data), and BepInEx keeps your old settings, so an old config may still have it switched on.
+3. Run `git pull` in the fm-scoring folder.
+4. Start FM, load your save, press **F9**, then run `python score.py` (or ask your assistant to update your pages).
+
+What happens by itself:
+
+- New settings are added to the config with their defaults (league comparison, divisions above and below, league staff).
+- Your plugin folder for the save (named like `MySave__(saved_12_times)` by older versions) is renamed to a stable name the first
+  time, so your snapshot history carries over. If you have several of those from older saves, only the most recent is renamed.
+- score.py imports every plugin snapshot it finds as squad history. Older snapshots count too; they just lack foot, wage and staff.
+
+What fills in over time: staff jobs, teams and attributes only exist from plugin 0.3.6 snapshots on, so they appear after that first F9;
+the league and staff comparison appears after the first F9 and refreshes every 7 in-game days; and the trend arrows need a few
+weeks of history.
+
 ### Your formation (the grid page)
 
 The grid page lays your squad out by formation slot: a starter, a backup, and a third column for players you
