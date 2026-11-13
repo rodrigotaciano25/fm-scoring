@@ -187,6 +187,9 @@ Press the number keys to move between pages, and **?** on any page for its keybo
 | 0 | Settings | Your club, division and other settings |
 | - | Compare | Your squad's average attributes against every club in your league, like FM24's Team Report > Comparison (needs the FMTracker plugin, below) |
 
+A green arrow after a name means the player has gained 3+ points in the attributes we score in the last 6 months (or 5+ in 12 months);
+a red one, lost as many. Hover for the details, or type `rising` / `falling` in the filter box.
+
 Click a column heading to sort by it, and double-click a player to see their history. Type in the box at the top
 to filter: for example, `age<=21 best=CB` shows centre-backs aged 21 and under.
 
@@ -195,6 +198,8 @@ To open the pages yourself, ask your assistant to "open my squad page".
 ### The league comparison (the compare page)
 
 This page needs no screenshots: a small game plugin, FMTracker, reads every squad in your league by itself. Windows only.
+The same plugin also keeps **your own squad** up to date: every time you run score.py, it adds the plugin's latest snapshot of
+your club (all attributes, foot, wage, value, loans) as if you'd taken squad screenshots. You only need screenshots for players at other clubs.
 
 1. Install **BepInEx 6, IL2CPP, win-x64** (from [BepInEx's builds](https://builds.bepinex.dev/projects/bepinex_be)) into
    FM27's folder (`C:\Program Files (x86)\Steam\steamapps\common\Football Manager 27`): unzip it so `winhttp.dll` sits next to `fm.exe`.

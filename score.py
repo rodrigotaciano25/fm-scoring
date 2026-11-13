@@ -19,6 +19,7 @@ import sys
 import time
 import tomllib
 import webbrowser
+import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -42,9 +43,9 @@ FM_ATTRS = {
     "Acceleration": ("Acceleration", "Acc"), "Agility": ("Agility", "Agi"), "Balance": ("Balance", "Bal"),
     "JumpingReach": ("Jumping Reach", "Jum"), "NaturalFitness": ("Natural Fitness", "Nat"), "Pace": ("Pace", "Pac"),
     "Stamina": ("Stamina", "Sta"), "Strength": ("Strength", "Str"),
-    "AerialReach": ("Aerial Reach", "Aer"), "CommandOfArea": ("Command Of Area", "Cmd"), "Communication": ("Communication", "Com"),
+    "AerialReach": ("Aerial Reach", "Aer"), "CommandOfArea": ("Command of Area", "Cmd"), "Communication": ("Communication", "Com"),
     "Eccentricity": ("Eccentricity", "Ecc"), "Handling": ("Handling", "Han"), "Kicking": ("Kicking", "Kic"),
-    "OneOnOnes": ("One On Ones", "1v1"), "Reflexes": ("Reflexes", "Ref"), "RushingOut": ("Rushing Out (Tendency)", "Rus"),
+    "OneOnOnes": ("One on Ones", "1v1"), "Reflexes": ("Reflexes", "Ref"), "RushingOut": ("Rushing Out (Tendency)", "Rus"),
     "TendencyToPunch": ("Punching (Tendency)", "Pun"), "Throwing": ("Throwing", "Thr"),
 }
 META = {"Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division"}  # every other column is an attribute
@@ -54,6 +55,7 @@ PARTIAL_SQUAD = re.compile(r"-(u\d+s?|reserves|first-team)$")  # source of a you
 SEARCH_MIN_WEIGHT = 2  # attributes weighted below this are left out of the filters page's search minimums
 IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 GRID_PCT_AGE = 24  # the grid page shows vs Age next to the score for senior players this age and under
+TREND_RULES = [(183, 3), (365, 5)]  # (days back, net attribute points): an arrow by the name when any rule is met, up or down
 
 
 
@@ -146,12 +148,27 @@ def player_row(name, p, w):
                         "attrs": attrs})
     latest = history[-1]
     return {
-        "name": name,
+        "name": name, "trend": trend(history, {a for weights in positions.values() for a in weights}),
         **{k: v for k, v in latest.items() if k not in ("date", "leftFoot", "attrs")},  # rating: latest observation only
         "left": None if known["leftFoot"] is None else "yes" if known["leftFoot"] in LEFT_FOOTED else "no",
         "loan": known["loan"], "wage": known["wage"], "valueLo": known["value"][0], "value": known["value"][1],  # value sorts on the top of FM's range
         "history": history,
     }
+
+
+def trend(history, scored):
+    """The arrow by a player's name: their net change in the `scored` attributes (those their positions' weights use:
+    keepers the GK weights, outfielders every outfield position's), summed over those known at both dates, since the earliest
+    observation within each TREND_RULES window; the first rule met wins. None if no rule is met."""
+    now = datetime.date.fromisoformat(history[-1]["date"])
+    for days, points in TREND_RULES:
+        since = next((h for h in history[:-1] if (now - datetime.date.fromisoformat(h["date"])).days <= days), None)
+        if since is None:
+            continue
+        net = sum(v - since["attrs"][a] for a, v in history[-1]["attrs"].items() if a in scored and a in since["attrs"])
+        if abs(net) >= points:
+            return {"net": net, "since": since["date"]}
+    return None
 
 
 def player_cols(w, with_club):
@@ -202,33 +219,120 @@ def charts(rows, squad, w, cfg):
             "managed": cfg["managed_club"], "division": cfg.get("division")}
 
 
+SHORT_GROUPS = {"GK": "GK", "D": "DEF", "WB": "DEF", "DM": "MID", "M": "MID", "AM": "MID", "ST": "ATT"}
+LONG_GROUPS = [("goalkeeper", "GK"), ("sweeper", "DEF"), ("wing", "DEF"), ("full", "DEF"), ("defender", "DEF"), ("back", "DEF"),
+               ("midfield", "MID"), ("striker", "ATT"), ("forward", "ATT")]  # order matters: "defensive midfielder" is MID
+
+
 def position_group(position):
     """FM's natural position string ('D (C)', 'M/AM (R)', 'DM, M (C)', 'GK') -> GK / DEF / MID / ATT, by its first position."""
     first = re.split(r"[,/ (]", (position or "").strip(), maxsplit=1)[0].upper()
-    return {"GK": "GK", "D": "DEF", "WB": "DEF", "DM": "MID", "M": "MID", "AM": "MID", "ST": "ATT"}.get(first)
+    return SHORT_GROUPS.get(first)
+
+
+def position_groups(position):
+    """Every group in a natural position string: 'AM (RLC), ST (C)' -> {MID, ATT}, 'D/WB/M (L)' -> {DEF, MID}."""
+    return {SHORT_GROUPS[t] for t in re.findall(r"[A-Z]+", re.sub(r"\([^)]*\)", "", (position or "").upper())) if t in SHORT_GROUPS}
+
+
+# FM's games-per-position list gives positions as bit flags. Seen in game (2027-01): 1 GK, 4 D (R), 8 D (L), 16 D (C), 32 WB (R),
+# 64 WB (L), 128 DM, 1024 M (C), 2048 AM (R), 4096 AM (L), 8192 AM (C), 16384 ST. 2 (sweeper) and 256 / 512 (M R / M L) by elimination.
+POSITION_FLAG_GROUPS = [(1, "GK"), (2 | 4 | 8 | 16 | 32 | 64, "DEF"), (128 | 256 | 512 | 1024 | 2048 | 4096 | 8192, "MID"), (16384, "ATT")]
+
+
+def played_group(position):
+    """A position from FM's games-per-position list: a bit flag ('16384'), or text, short ('ST (C)') or long ('Striker') -> its group."""
+    if str(position or "").isdigit():
+        flag = int(position)
+        return next((g for bits, g in POSITION_FLAG_GROUPS if flag & bits), None)
+    if group := position_group(position):
+        return group
+    text = (position or "").lower()
+    if "defensive" in text and "midfield" in text:
+        return "MID"
+    return next((g for word, g in LONG_GROUPS if word in text), None)
+
+
+def player_groups(position, played):
+    """The groups a player counts in: their first natural position's, plus any other natural position's group where they've
+    played games for their club (FMTracker's positionsPlayed). Without that list, just the first."""
+    main = position_group(position)
+    used = {played_group(x.get("position")) for x in played or [] if (x.get("games") or 0) > 0}
+    return sorted({main} | (position_groups(position) & used) - {None})
+
+
+def fmtracker_exports(config, cfg, pattern, club_key):
+    """FMTracker's JSON files (`pattern`, e.g. "league/league_*.json") of the managed club (field `club_key`), from one
+    plugin save folder: save.toml's `fmtracker_save`, else the one written most recently. [(path, data)], oldest first."""
+    base = Path(config.get("fmtracker_dir", DEFAULT_FMTRACKER_DIR)).expanduser() / "saves"
+    found = []
+    for f in base.glob(f"{cfg.get('fmtracker_save', '*')}/{pattern}"):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get(club_key) == cfg["managed_club"]:
+            found.append((f, data))
+    if not found:
+        return []
+    folder = max(found, key=lambda x: x[0].stat().st_mtime)[0].parent  # the save played most recently
+    return sorted(((f, d) for f, d in found if f.parent == folder), key=lambda x: (x[1].get("inGameDate") or "", x[0].name))
+
+
+def import_fmtracker(config, cfg, obs_dir):
+    """The latest FMTracker snapshot of the managed club -> obs/<date>_fmtracker_{outfield,gk}.csv, so the squad pages update
+    without screenshots. Every team at the club (first team, B team, youth) and players out on loan; one file pair per game date."""
+    snaps = fmtracker_exports(config, cfg, "snapshot_*.json", "clubName")
+    if not snaps:
+        return
+    path, snap = snaps[-1]
+    date = snap.get("inGameDate") or ""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        return
+    managed = cfg["managed_club"]
+    meta = ["Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division"]
+    attrs = [name for name, _ in FM_ATTRS.values()]
+    rows = {"outfield": [], "gk": []}
+    for p in snap.get("players", []):
+        if not p.get("name") or not p.get("attributes") or not p.get("age"):
+            continue
+        # awayOnLoan = away from their contract club: on loan here if the loan club is ours (B teams: "Austria Wien II"), else out
+        ours = (p.get("loanClub") or "").startswith(managed)
+        out = (p.get("awayOnLoan") and not ours) or p.get("squad") == "OnLoan"
+        loan_in = p.get("awayOnLoan") and ours
+        row = {"Name": p["name"], "Club": managed, "Age": p["age"], "Left Foot": p.get("leftFoot") or "",
+               "Wage": p.get("wage") or "", "Transfer Value": p.get("transferValue") or "",
+               "Loan": "out" if out else "in" if loan_in else "",
+               "Minutes": p.get("minutesThisSeason") or 0 if p.get("averageRating") else "",
+               "Rating": p.get("averageRating") or "", "Division": cfg.get("division", "") if p.get("averageRating") else ""}
+        row.update({FM_ATTRS[k][0]: v for k, v in p["attributes"].items() if k in FM_ATTRS})
+        rows["gk" if (p.get("position") or "").strip().upper() == "GK" else "outfield"].append(row)
+    for view, rs in rows.items():
+        target = obs_dir / f"{date}_fmtracker_{view}.csv"
+        if rs and not target.exists():
+            with target.open("w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=meta + attrs)
+                w.writeheader()
+                w.writerows(sorted(rs, key=lambda r: r["Name"]))
+            print(f"[fmtracker] {target.name}: {len(rs)} players from {path.parent.name}/{path.name}")
 
 
 def compare(config, cfg):
     """Page 11: the latest league squads FMTracker exported (<fmtracker_dir>/saves/<save>/league/league_<date>.json),
     for the managed club. save.toml's `fmtracker_save` picks the plugin's save folder; else the most recently written one
     whose export is of the managed club."""
-    base = Path(config.get("fmtracker_dir", DEFAULT_FMTRACKER_DIR)).expanduser() / "saves"
-    exports = []  # (path, export) of the managed club, in the chosen plugin save folder
-    for f in base.glob(f"{cfg.get('fmtracker_save', '*')}/league/league_*.json"):
-        try:
-            export = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if export.get("managedClub") == cfg["managed_club"]:
-            exports.append((f, export))
+    exports = fmtracker_exports(config, cfg, "league/league_*.json", "managedClub")
     if not exports:
-        return {"source": str(base), "clubs": [], "attrs": FM_ATTRS}
-    folder = max(exports, key=lambda x: x[0].stat().st_mtime)[0].parent  # the save played most recently
-    path, export = max(((f, e) for f, e in exports if f.parent == folder), key=lambda x: x[1].get("inGameDate") or "")
+        return {"source": str(Path(config.get("fmtracker_dir", DEFAULT_FMTRACKER_DIR)) / "saves"), "clubs": [], "attrs": FM_ATTRS}
+    path, export = exports[-1]
     clubs = [{"name": c.get("name") or "?", "managed": bool(c.get("managed")),
               "players": [{"name": p.get("name"), "age": p.get("age"), "pos": p.get("position") or "",
-                           "group": position_group(p.get("position")), "a": p.get("attributes") or {}}
-                          for p in c.get("players", []) if p.get("attributes")]}
+                           "groups": player_groups(p.get("position"), p.get("positionsPlayed")),
+                           "played": {x.get("position"): x.get("games") for x in p.get("positionsPlayed") or [] if x.get("games")},
+                           "a": p.get("attributes") or {}}
+                          for p in c.get("players", []) if p.get("attributes")
+                          # out on loan elsewhere (FMTracker 0.3.2+): not part of this squad
+                          and not (p.get("awayOnLoan") and not (p.get("loanClub") or "").startswith(c.get("name") or "?"))]}
              for c in export.get("clubs", [])]
     return {"source": str(path), "date": export.get("inGameDate"), "competition": export.get("competition"),
             "managed": cfg["managed_club"], "clubs": [c for c in clubs if c["players"]], "attrs": FM_ATTRS}
@@ -394,6 +498,7 @@ def build(save, config):
     w = load_toml(ROOT / "weights" / f"{cfg['weights']}.toml")
     managed = cfg["managed_club"]
 
+    import_fmtracker(config, cfg, save_dir / "obs")
     players, obs_files = load_players(save_dir / "obs", cfg.get("aliases"))
     rows = [player_row(n, p, w) for n, p in players.items()]
     check_listed(cfg, "last_names", players.keys(), "has players never observed")

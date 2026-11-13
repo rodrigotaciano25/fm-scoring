@@ -103,11 +103,11 @@ const ord = n => n + (Math.floor(n / 10) % 10 === 1 ? "th" : { 1: "st", 2: "nd",
 /** Columns of the current tab: [{ key, label, name, value(club) }]. */
 function columns() {
   const tab = TABS[state.tab], groups = tab.groups || state.groups;
-  const players = c => c.players.filter(p => groups.includes(p.group));
+  const players = c => c.players.filter(p => p.groups.some(g => groups.includes(g)));
   if (tab.cats) return Object.entries(tab.cats)
     .filter(([cat]) => cat === "Goalkeeping" ? groups.includes("GK") : groups.some(g => g !== "GK"))
     .map(([cat, attrs]) => ({ key: cat, label: cat, name: cat + " (average of " + attrs.length + " attributes)",
-      value: c => mean(players(c).filter(p => cat === "Goalkeeping" ? p.group === "GK" : cat !== "Technical" || p.group !== "GK")
+      value: c => mean(players(c).filter(p => cat === "Goalkeeping" ? p.groups.includes("GK") : cat !== "Technical" || !p.groups.includes("GK"))
                                .map(p => mean(attrs.filter(a => p.a[a] != null).map(a => p.a[a]))).filter(v => v != null)) }));
   return tab.attrs.map(a => ({ key: a, label: ATTRS[a][1], name: ATTRS[a][0],
                                value: c => mean(players(c).map(p => p.a[a]).filter(v => v != null)) }));
@@ -208,7 +208,7 @@ function render() {
   controls();
   const ss = stats(columns()).filter(s => s.per.length);
   const club = DATA.clubs.find(c => c.name === state.club), groups = TABS[state.tab].groups || state.groups;
-  const n = club.players.filter(p => groups.includes(p.group)).length;
+  const n = club.players.filter(p => p.groups.some(g => groups.includes(g))).length;
   document.getElementById("title").textContent = `${state.club} · ${state.tab}`;
   document.getElementById("sub").innerHTML = `${DATA.competition} · ${DATA.clubs.length} clubs · first-team squads on <b>${DATA.date}</b> · ` +
     `${n} ${state.club} players · bar = club average, white line = league average · hover a column for best / worst`;

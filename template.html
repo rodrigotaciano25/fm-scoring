@@ -42,6 +42,9 @@ __THEME__
   #detail .tile { width: min(1000px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: auto; }
   #detail table + .ttitle { margin-top: 14px; }
   #detail .chg { font-size: 11px; margin-left: 4px; }
+  .trend { display: inline-block; margin-left: 6px; cursor: help; vertical-align: -1px; }
+  .trend svg { display: block; width: 8px; height: 11px; fill: currentColor; }
+  .trend.down svg { transform: rotate(180deg); }
   /* Weights: small, dim multipliers behind a divider, so they don't read as attribute values */
   td.wt { color: var(--dim); font-size: 11px; border-right: 1px solid var(--line); padding-right: 12px; }
   th.wt { border-right: 1px solid var(--line); padding-right: 12px; }
@@ -96,7 +99,7 @@ __THEME__
     <tr><td><b>esc</b></td><td>clear the filter</td></tr>
     <tr><td><b>?</b></td><td>show / hide this</td></tr>
     <tr><td colspan="2" class="sub">filters: <b>col:text</b> contains · <b>col=x</b> · <b>col!=x</b> · <b>col&lt;n</b> <b>col&lt;=n</b> <b>col&gt;n</b> <b>col&gt;=n</b><br>
-      money: <b>wage&lt;=1k</b> <b>value&lt;=500k</b> (value = top of FM's range) · plain words match name / club, or <b>loan-in</b> / <b>loan-out</b> / <b>trial</b> · e.g. <b>club:gent age&lt;=24 best!=GK vs&gt;=90 left=yes</b></td></tr>
+      money: <b>wage&lt;=1k</b> <b>value&lt;=500k</b> (value = top of FM's range) · plain words match name / club, or <b>loan-in</b> / <b>loan-out</b> / <b>trial</b> / <b>rising</b> / <b>falling</b> (the ▲▼ by a name: ±3 attribute points in 6 months or ±5 in 12) · e.g. <b>club:gent age&lt;=24 best!=GK vs&gt;=90 left=yes</b></td></tr>
   </table>
 </div></div>
 <script>
@@ -147,7 +150,7 @@ function parseFilter(q) {
     const m = tok.match(/^([^:=<>!]+)(<=|>=|!=|<|>|=|:)(.*)$/);
     if (!m) {
       const t = tok.replace(/"/g, "").toLowerCase();
-      return r => `${r.name} ${r.club || ""} ${r.loan ? loanLabel(r).replace(" ", "-") : ""}`.toLowerCase().includes(t);
+      return r => `${r.name} ${r.club || ""} ${r.loan ? loanLabel(r).replace(" ", "-") : ""} ${r.trend ? (r.trend.net > 0 ? "rising" : "falling") : ""}`.toLowerCase().includes(t);
     }
     const col = findCol(m[1]), op = m[2], raw = m[3].replace(/"/g, "");
     if (!col || raw === "") { bad = true; return () => true; }
@@ -170,6 +173,11 @@ function parseFilter(q) {
   return { tests, bad };
 }
 
+// ▲/▼ after a name: a big net attribute change lately (TREND_RULES in score.py). "rising" / "falling" filter on it.
+// The arrow: a triangle head on a wide shaft (pointing down when falling), in the cell's green / red.
+const ARROW = `<svg viewBox="0 0 10 14" aria-hidden="true"><path d="M5 0 L10 6 L7.4 6 L7.4 14 L2.6 14 L2.6 6 L0 6 Z"/></svg>`;
+const trendArrow = r => r.trend ? `<span class="trend ${r.trend.net > 0 ? "t4 up" : "t0 down"}" title="${r.trend.net > 0 ? "+" : "−"}${Math.abs(r.trend.net)} scored-attribute points since ${r.trend.since}">${ARROW}</span>` : "";
+
 function render() {
   const { tests, bad } = parseFilter(input.value);
   input.classList.toggle("bad", bad);
@@ -190,7 +198,7 @@ function render() {
     if (c.fmt === "range") return `<td class="num${at}">${r.valueLo === v ? FMT.money(v) : FMT.money(r.valueLo) + "–" + FMT.money(v)}</td>`;
     if (c.fmt === "yesno") return `<td class="${v === "yes" ? "t4" : "dim"}${at}">${v}</td>`;
     if (c.fmt) return `<td class="num ${tier(v, RANGE[c.fmt])}${at}">${FMT[c.fmt](v)}</td>`;
-    if (c.key === "name") return `<td class="${at}">${v}${r.loan ? `<span class="loan ${r.loan}">${loanLabel(r)}</span>` : ""}</td>`;
+    if (c.key === "name") return `<td class="${at}">${v}${trendArrow(r)}${r.loan ? `<span class="loan ${r.loan}">${loanLabel(r)}</span>` : ""}</td>`;
     return `<td class="${c.num ? "num" : "text"}${at}">${v}</td>`;
   }).join("") + "</tr>").join("");
   document.querySelector("td.cur")?.scrollIntoView({ block: "nearest", inline: "nearest" });
