@@ -48,7 +48,7 @@ FM_ATTRS = {
     "OneOnOnes": ("One on Ones", "1v1"), "Reflexes": ("Reflexes", "Ref"), "RushingOut": ("Rushing Out (Tendency)", "Rus"),
     "TendencyToPunch": ("Punching (Tendency)", "Pun"), "Throwing": ("Throwing", "Thr"),
 }
-META = {"Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division"}  # every other column is an attribute
+META = {"Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division", "Squad"}  # every other column is an attribute
 STAFF_META = {"Name", "Club", "Age", "Job", "Personality"}
 LEFT_FOOTED = {"Fairly Strong", "Strong", "Very Strong"}
 PARTIAL_SQUAD = re.compile(r"-(u\d+s?|reserves|first-team)$")  # source of a youth/reserve squad screen: not the whole club
@@ -121,6 +121,8 @@ def load_players(obs_dir, aliases=None):
         if row.get("Transfer Value"):
             lo, _, hi = row["Transfer Value"].partition(" - ")
             snap["value"] = (money(lo), money(hi or lo))
+        if row.get("Squad"):  # FMTracker imports: the team at the club (FirstTeam, U21, U18, OnLoan)
+            snap["team"] = row["Squad"]
         if "Loan" in row:  # squad screens only: "in" (blue name), "out" (red name), "trial" (yellow name) or blank
             snap["loan"] = row["Loan"] or None
         if row.get("Rating"):  # season minutes and average rating, from search screens that show them
@@ -133,7 +135,7 @@ def player_row(name, p, w):
     """A player's latest state, plus their history: one entry per observation date."""
     positions = {"GK": w["gk"]} if p["keeper"] else w["outfield"]
     ages = sorted(int(a) for a in w["age_benchmark"])
-    known = {"leftFoot": None, "wage": None, "value": (None, None), "loan": None}
+    known = {"leftFoot": None, "wage": None, "value": (None, None), "loan": None, "team": None}
     history = []
     for date, snap, attrs in timeline(p["dates"]):
         known.update({k: v for k, v in snap.items() if k in known})
@@ -151,7 +153,7 @@ def player_row(name, p, w):
         "name": name, "trend": trend(history, {a for weights in positions.values() for a in weights}),
         **{k: v for k, v in latest.items() if k not in ("date", "leftFoot", "attrs")},  # rating: latest observation only
         "left": None if known["leftFoot"] is None else "yes" if known["leftFoot"] in LEFT_FOOTED else "no",
-        "loan": known["loan"], "wage": known["wage"], "valueLo": known["value"][0], "value": known["value"][1],  # value sorts on the top of FM's range
+        "loan": known["loan"], "team": known["team"], "wage": known["wage"], "valueLo": known["value"][0], "value": known["value"][1],  # value sorts on the top of FM's range
         "history": history,
     }
 
@@ -280,17 +282,21 @@ def fmtracker_exports(config, cfg, pattern, club_key):
 
 
 def import_fmtracker(config, cfg, obs_dir):
-    """The latest FMTracker snapshot of the managed club -> obs/<date>_fmtracker_{outfield,gk}.csv, so the squad pages update
-    without screenshots. Every team at the club (first team, B team, youth) and players out on loan; one file pair per game date."""
-    snaps = fmtracker_exports(config, cfg, "snapshot_*.json", "clubName")
-    if not snaps:
-        return
-    path, snap = snaps[-1]
-    date = snap.get("inGameDate") or ""
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
-        return
+    """FMTracker snapshots of the managed club -> obs/<date>_fmtracker_{outfield,gk}.csv, so the squad pages update without
+    screenshots: every game date not imported yet (the latest snapshot of each). Every team at the club and players out on
+    loan; `Squad` is the plugin's team (FirstTeam, U21, U18, OnLoan)."""
+    latest = {}  # game date -> (path, snapshot), the newest file wins
+    for path, snap in fmtracker_exports(config, cfg, "snapshot_*.json", "clubName"):
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", snap.get("inGameDate") or ""):
+            latest[snap["inGameDate"]] = (path, snap)
+    for date, (path, snap) in sorted(latest.items()):
+        if not (obs_dir / f"{date}_fmtracker_outfield.csv").exists():
+            write_fmtracker_obs(cfg, obs_dir, date, path, snap)
+
+
+def write_fmtracker_obs(cfg, obs_dir, date, path, snap):
     managed = cfg["managed_club"]
-    meta = ["Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division"]
+    meta = ["Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division", "Squad"]
     attrs = [name for name, _ in FM_ATTRS.values()]
     rows = {"outfield": [], "gk": []}
     for p in snap.get("players", []):
@@ -304,7 +310,8 @@ def import_fmtracker(config, cfg, obs_dir):
                "Wage": p.get("wage") or "", "Transfer Value": p.get("transferValue") or "",
                "Loan": "out" if out else "in" if loan_in else "",
                "Minutes": p.get("minutesThisSeason") or 0 if p.get("averageRating") else "",
-               "Rating": p.get("averageRating") or "", "Division": cfg.get("division", "") if p.get("averageRating") else ""}
+               "Rating": p.get("averageRating") or "", "Division": cfg.get("division", "") if p.get("averageRating") else "",
+               "Squad": p.get("squad") or ""}
         row.update({FM_ATTRS[k][0]: v for k, v in p["attributes"].items() if k in FM_ATTRS})
         rows["gk" if (p.get("position") or "").strip().upper() == "GK" else "outfield"].append(row)
     for view, rs in rows.items():
@@ -544,7 +551,8 @@ def build(save, config):
     club_staff = [r for r in staff_rows if r["club"] == managed and r["history"][-1]["date"] >= max(club_dates, default="")]
 
     return cfg, {
-        "squad": (player_cols(w, False), squad),
+        # page 1: the first team and players on loan in or out (youth and B team are on the grid); unknown team = shown
+        "squad": (player_cols(w, False), [r for r in squad if r["team"] in (None, "FirstTeam") or r["loan"] in ("in", "out")]),
         "grid": (player_cols(w, False), grid(squad, w, cfg, intake)),  # the columns are for the history overlay
         "elsewhere": (player_cols(w, True), [r for r in rows if r["club"] != managed]),
         # a screenshot of just names (e.g. a shortlist) picks players already observed; otherwise the batch's files

@@ -4,7 +4,7 @@ Scores Football Manager players on weighted attributes and tracks them over game
 FM has no data export, so the user takes screenshots of in-game player tables and an agent
 transcribes them to CSV. `score.py` turns those into eleven pages per save (keys 1–9, then 0 and -):
 
-1. **squad**: the club the user manages
+1. **squad**: the club the user manages: its first team and players on loan in or out (with FMTracker data; the youth and B team are on the grid)
 2. **grid**: the squad by formation slot (save.toml's `grid`): starter, backup, then third (to sell or loan out) by position score, then the
    youth (`youth_age` and under) by vs Age, so the pipeline and who's blocking the next intake show at a glance
 3. **elsewhere**: every other player they've looked at
@@ -45,7 +45,7 @@ Runs on macOS, Windows and Linux: stdlib Python 3.11+ only (`python3` here; on W
 ## Squad data from FMTracker
 
 With the FMTracker plugin installed, the user doesn't need squad screenshots. Each `score.py` run writes the plugin's latest snapshot
-of the managed club (every team at the club, plus players out on loan) to `obs/<date>_fmtracker_{outfield,gk}.csv`, once per game date. That file counts
+of the managed club (every team at the club, plus players out on loan) to `obs/<date>_fmtracker_{outfield,gk}.csv`: every snapshot date not imported yet (the newest file of each date), with a `Squad` column (FirstTeam, U21, U18, OnLoan) that page 1 filters on. That file counts
 as a full squad screen. It has every attribute, plus Left Foot, Wage and Transfer Value from plugin 0.3.2 on (older snapshots leave them blank, and the
 previous values carry forward). Loan: `in` when away from their contract club with one of ours as the loan club, `out` when on loan elsewhere.
 Commit the new files like any observation. Screenshots are still how players at other clubs get in (searches, shortlists).
