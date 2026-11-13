@@ -332,7 +332,11 @@ def compare(config, cfg):
     if not exports:
         return {"source": str(Path(config.get("fmtracker_dir", DEFAULT_FMTRACKER_DIR)) / "saves"), "clubs": [], "attrs": FM_ATTRS}
     path, export = exports[-1]
-    clubs = [{"name": c.get("name") or "?", "managed": bool(c.get("managed")),
+    def clubs_of(export_clubs):
+        return [c for c in (club(c) for c in export_clubs) if c["players"]]
+
+    def club(c):
+        return {"name": c.get("name") or "?", "managed": bool(c.get("managed")),
               "players": [{"name": p.get("name"), "age": p.get("age"), "pos": p.get("position") or "",
                            "groups": player_groups(p.get("position"), p.get("positionsPlayed")),
                            "played": {x.get("position"): x.get("games") for x in p.get("positionsPlayed") or [] if x.get("games")},
@@ -340,9 +344,13 @@ def compare(config, cfg):
                           for p in c.get("players", []) if p.get("attributes")
                           # out on loan elsewhere (FMTracker 0.3.2+): not part of this squad
                           and not (p.get("awayOnLoan") and not (p.get("loanClub") or "").startswith(c.get("name") or "?"))]}
-             for c in export.get("clubs", [])]
+
+    # Divisions above / below (FMTracker 0.3.3+, LeagueOtherDivisions): the club is compared against those clubs instead
+    others = [{"competition": o.get("competition") or o.get("relation"), "relation": o.get("relation"), "clubs": clubs_of(o.get("clubs", []))}
+              for o in export.get("otherCompetitions") or []]
     return {"source": str(path), "date": export.get("inGameDate"), "competition": export.get("competition"),
-            "managed": cfg["managed_club"], "clubs": [c for c in clubs if c["players"]], "attrs": FM_ATTRS}
+            "managed": cfg["managed_club"], "clubs": clubs_of(export.get("clubs", [])),
+            "others": [o for o in others if o["clubs"]], "attrs": FM_ATTRS}
 
 
 def grid(squad, w, cfg, intake):

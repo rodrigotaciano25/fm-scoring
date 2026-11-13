@@ -157,6 +157,9 @@ If FM renames an attribute, use the new name in the CSV header and in the weight
   plus any other natural position's group where the player has played games for the club (the export's `positionsPlayed`), so one player can count in two groups.
   Club average = mean over its players in the ticked groups; league average = mean of the club averages. The Overview tab's
   columns are the mean of each category's attributes per player (Technical leaves keepers out; Goalkeeping is keepers only).
+  **Against** (plugin 0.3.3+, `LeagueOtherDivisions` in the plugin's cfg, default `upper,lower`): the divisions above / below the club's
+  (its first team's UpperDivision / LowerDivision, every team in their TeamList). There, the club is ranked among that league's clubs, the
+  league's range and average come from its own clubs only, and a column stretches to include the club when it's outside that range (dashed = the league's range).
 - **Filters page:** the squad's top 3 per position (top 1 for GK). **Search ≥** = their rounded average
   for attributes weighted ≥ 2 (`SEARCH_MIN_WEIGHT`), for use as minimums in FM's search.
 - **Staff filters page:** the same per staff role: the top 3 of the managed club's staff (at the club in its latest staff

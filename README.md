@@ -210,6 +210,8 @@ your club (all attributes, foot, wage, value, loans) as if you'd taken squad scr
    `BepInEx\fmtracker\saves\<your save>\league\`. From then on it does this by itself every 7 in-game days.
 4. Ask your assistant to "open my compare page" (or run `python score.py --open compare`).
 
+The **against** menu compares your squad with the division above yours (how ready are you for promotion?) or the one below.
+
 The plugin is built for one FM27 version; after a big FM update it may need rebuilding. A Steam update or "verify files" can
 delete BepInEx: reinstall it and the plugin if the page stops updating. If FM isn't installed in Steam's default folder,
 add `fmtracker_dir = "<FM folder>/BepInEx/fmtracker"` to `config.toml`.

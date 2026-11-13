@@ -32,6 +32,7 @@ __THEME__
   .col:hover rect.b { fill-opacity: 1; }
   .col rect.hit { fill: transparent; }
   .avg { stroke: var(--fg); stroke-width: 2; stroke-opacity: .85; }
+  .range { stroke-width: 2; stroke-dasharray: 4 3; } .range.lo { stroke: var(--blue); } .range.hi { stroke: var(--green); }
   .val { fill: var(--fg); font-weight: 700; font-size: 11px; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
   .xl { fill: var(--dim); font-size: 11px; } .col:hover .xl { fill: var(--cyan); }
   table.rank { border-collapse: collapse; width: 100%; font-size: 12px; }
@@ -51,6 +52,7 @@ __THEME__
 <body>
 <div class="bar">
   <span class="pages">__NAV__</span>
+  <span class="seg"><span class="lbl">against</span><select id="league"></select></span>
   <span class="seg"><span class="lbl">club</span><select id="club"></select></span>
   <span class="seg" id="tabs"></span>
   <span class="seg" id="groups"><span class="lbl">show only</span></span>
@@ -90,10 +92,18 @@ const TABS = {
   Physical: { attrs: PHYS }, Mental: { attrs: MENT }, Technical: { attrs: TECH },
 };
 
-const state = { club: DATA.managed, tab: "Overview", groups: ["DEF", "MID", "ATT"] };
+// The leagues to compare in: the club's own, then any division above / below that FMTracker read. In another league,
+// the managed club is ranked among that league's clubs (e.g. how ready the squad is for promotion).
+const MINE = DATA.clubs.find(c => c.managed);
+const LEAGUES = [{ key: "own", name: DATA.competition, clubs: DATA.clubs },
+  ...(DATA.others || []).map(o => ({ key: o.relation, name: o.competition, relation: o.relation,
+    clubs: [...o.clubs.filter(c => c.name !== MINE?.name), ...(MINE ? [{ ...MINE, guest: true }] : [])] }))];
+const state = { club: DATA.managed, tab: "Overview", groups: ["DEF", "MID", "ATT"], league: "own" };
 try { Object.assign(state, JSON.parse(localStorage.getItem(STORE)) || {}); } catch (e) {}
 const save = () => { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) {} };
 const set = (k, v) => { state[k] = v; save(); render(); };
+const league = () => LEAGUES.find(l => l.key === state.league) || LEAGUES[0];
+const CLUBS = () => league().clubs;
 
 const NS = "http://www.w3.org/2000/svg";
 const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent?.appendChild(e); return e; };
@@ -116,8 +126,10 @@ function columns() {
 /** Per column: every club's value, sorted best first, and the league's average (of the club averages, as FM does). */
 function stats(cols) {
   return cols.map(col => {
-    const per = DATA.clubs.map(c => ({ club: c.name, v: col.value(c) })).filter(x => x.v != null).sort((a, b) => b.v - a.v);
-    return { ...col, per, avg: mean(per.map(x => x.v)), hi: per[0]?.v, lo: per[per.length - 1]?.v };
+    const per = CLUBS().map(c => ({ club: c.name, v: col.value(c) })).filter(x => x.v != null).sort((a, b) => b.v - a.v);
+    // Another division: the league's range and average come from its own clubs (the managed club is a guest in the ranking)
+    const league = per.filter(x => !(x.club === DATA.managed && state.league !== "own"));
+    return { ...col, per, avg: mean(league.map(x => x.v)), hi: league[0]?.v, lo: league[league.length - 1]?.v };
   });
 }
 
@@ -143,15 +155,22 @@ function chart(ss) {
   el("rect", { x: L, y: top, width: W - L - R, height: bottom - top, class: "band" }, svg);
   el("line", { x1: L, x2: W - R, y1: top, y2: top, class: "edge hi" }, svg);
   el("line", { x1: L, x2: W - R, y1: bottom, y2: bottom, class: "edge lo" }, svg);
-  const comp = DATA.competition || "the league";
-  el("text", { x: W / 2, y: top - 6, "text-anchor": "middle", class: "edge-label hi" }, svg).textContent = `highest average in ${comp}`;
-  el("text", { x: W / 2, y: bottom + 34, "text-anchor": "middle", class: "edge-label lo" }, svg).textContent = `lowest average in ${comp}`;
+  const comp = league().name || "the league";
+  const guest = state.league !== "own", also = guest ? ` (or ${state.club}) · dashed = ${comp}'s own range` : "";
+  el("text", { x: W / 2, y: top - 6, "text-anchor": "middle", class: "edge-label hi" }, svg).textContent = `highest average in ${comp}${also}`;
+  el("text", { x: W / 2, y: bottom + 34, "text-anchor": "middle", class: "edge-label lo" }, svg).textContent = `lowest average in ${comp}${also}`;
   const n = ss.length, slot = (W - L - R) / n, bw = Math.min(slot * 0.62, 90);
   ss.forEach((s, i) => {
     const me = s.per.find(x => x.club === state.club); if (!me) return;
-    const y = v => s.hi === s.lo ? (top + bottom) / 2 : bottom - (v - s.lo) / (s.hi - s.lo) * (bottom - top);
+    // The column runs from the league's lowest to highest club average; when the shown club is outside that range
+    // (another division), it stretches to include it, and dashed marks show where the league's range starts / ends.
+    const d1 = Math.max(s.hi, me.v), m0 = Math.min(s.lo, me.v);
+    const d0 = m0 < s.lo ? m0 - (d1 - m0) * 0.15 : m0;  // below the league: headroom underneath, so the bar still shows
+    const y = v => d1 === d0 ? (top + bottom) / 2 : bottom - (v - d0) / (d1 - d0) * (bottom - top);
     const cx = L + slot * i + slot / 2, g = el("g", { class: "col" }, svg);
-    const rank = s.per.indexOf(me), cls = rank === 0 ? " best" : rank === s.per.length - 1 ? " worst" : "";
+    if (d0 < s.lo) el("line", { x1: cx - bw / 2 - 6, x2: cx + bw / 2 + 6, y1: y(s.lo), y2: y(s.lo), class: "range lo" }, g);
+    if (d1 > s.hi) el("line", { x1: cx - bw / 2 - 6, x2: cx + bw / 2 + 6, y1: y(s.hi), y2: y(s.hi), class: "range hi" }, g);
+    const cls = me.v >= s.hi ? " best" : me.v <= s.lo ? " worst" : "";
     const yt = y(me.v);
     el("rect", { x: cx - bw / 2, y: Math.min(yt, bottom - 2), width: bw, height: Math.max(bottom - yt, 2), class: "b" + cls }, g);
     el("line", { x1: cx - bw / 2 - 4, x2: cx + bw / 2 + 4, y1: y(s.avg), y2: y(s.avg), class: "avg" }, g);
@@ -163,7 +182,7 @@ function chart(ss) {
 }
 
 function table(ss) {
-  const clubs = [...DATA.clubs].map(c => c.name);
+  const clubs = [...CLUBS()].map(c => c.name);
   const val = (s, club) => s.per.find(x => x.club === club)?.v;
   const overall = club => mean(ss.map(s => { const i = s.per.findIndex(x => x.club === club); return i < 0 ? null : i + 1; }).filter(v => v != null));
   clubs.sort((a, b) => overall(a) - overall(b));
@@ -179,8 +198,12 @@ function table(ss) {
 
 function controls() {
   const sel = document.getElementById("club");
-  sel.innerHTML = DATA.clubs.map(c => c.name).sort().map(c => `<option${c === state.club ? " selected" : ""}>${c}</option>`).join("");
+  sel.innerHTML = CLUBS().map(c => c.name).sort().map(c => `<option${c === state.club ? " selected" : ""}>${c}</option>`).join("");
   sel.onchange = () => set("club", sel.value);
+  const lsel = document.getElementById("league");
+  lsel.parentElement.style.display = LEAGUES.length > 1 ? "" : "none";
+  lsel.innerHTML = LEAGUES.map(l => `<option value="${l.key}"${l.key === league().key ? " selected" : ""}>${l.name}${l.relation ? ` (${l.relation === "upper" ? "division above" : "division below"})` : " (yours)"}</option>`).join("");
+  lsel.onchange = () => { state.league = lsel.value; if (lsel.value !== "own") state.club = DATA.managed; save(); render(); };
   const tabs = document.getElementById("tabs"); tabs.innerHTML = "";
   for (const t of Object.keys(TABS)) {
     const b = document.createElement("button"); b.textContent = t; if (t === state.tab) b.className = "on";
@@ -198,19 +221,21 @@ function controls() {
 }
 
 function render() {
-  if (!DATA.clubs.length) {
+  if (!CLUBS().length) {
     document.querySelector(".tile").innerHTML = `<div class="empty">No league squads yet. FMTracker writes them by itself
       (after its weekly snapshot) to <code>&lt;FM&gt;/BepInEx/fmtracker/saves/&lt;save&gt;/league/</code>; then run score.py again.<br>Looked in: <code>${DATA.source}</code></div>`;
     document.querySelectorAll(".tile")[1].style.display = "none";
     return;
   }
-  if (!DATA.clubs.some(c => c.name === state.club)) state.club = (DATA.clubs.find(c => c.managed) || DATA.clubs[0]).name;
+  if (!CLUBS().some(c => c.name === state.club)) state.club = (CLUBS().find(c => c.managed) || CLUBS()[0]).name;
   controls();
   const ss = stats(columns()).filter(s => s.per.length);
-  const club = DATA.clubs.find(c => c.name === state.club), groups = TABS[state.tab].groups || state.groups;
+  const club = CLUBS().find(c => c.name === state.club), groups = TABS[state.tab].groups || state.groups;
   const n = club.players.filter(p => p.groups.some(g => groups.includes(g))).length;
   document.getElementById("title").textContent = `${state.club} · ${state.tab}`;
-  document.getElementById("sub").innerHTML = `${DATA.competition} · ${DATA.clubs.length} clubs · first-team squads on <b>${DATA.date}</b> · ` +
+  const l = league();
+  document.getElementById("sub").innerHTML = (l.relation ? `<b>${DATA.managed}</b> ranked among the clubs of ${l.name} (the division ${l.relation === "upper" ? "above" : "below"}) · ` : "") +
+    `${l.name} · ${CLUBS().length} clubs · first-team squads on <b>${DATA.date}</b> · ` +
     `${n} ${state.club} players · bar = club average, white line = league average · hover a column for best / worst`;
   if (!ss.length) { document.getElementById("chart").innerHTML = `<div class="empty">No players in the selected positions.</div>`; }
   else chart(ss);
