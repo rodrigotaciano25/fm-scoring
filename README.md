@@ -80,7 +80,7 @@ Copy these lines into the terminal one at a time, pressing Enter after each:
 
 ```
 cd Documents
-git clone https://github.com/jamiebolden/fm-scoring.git
+git clone https://github.com/rodrigotaciano25/fm-scoring.git
 cd fm-scoring
 ```
 
@@ -185,11 +185,29 @@ Press the number keys to move between pages, and **?** on any page for its keybo
 | 8 | Last staff | Just the staff from your latest staff screenshots |
 | 9 | Staff filters | Your best staff per job, and minimum attributes to search FM for staff better than them |
 | 0 | Settings | Your club, division and other settings |
+| - | Compare | Your squad's average attributes against every club in your league, like FM24's Team Report > Comparison (needs the FMTracker plugin, below) |
 
 Click a column heading to sort by it, and double-click a player to see their history. Type in the box at the top
 to filter: for example, `age<=21 best=CB` shows centre-backs aged 21 and under.
 
 To open the pages yourself, ask your assistant to "open my squad page".
+
+### The league comparison (the compare page)
+
+This page needs no screenshots: a small game plugin, FMTracker, reads every squad in your league by itself. Windows only.
+
+1. Install **BepInEx 6, IL2CPP, win-x64** (from [BepInEx's builds](https://builds.bepinex.dev/projects/bepinex_be)) into
+   FM27's folder (`C:\Program Files (x86)\Steam\steamapps\common\Football Manager 27`): unzip it so `winhttp.dll` sits next to `fm.exe`.
+   Start FM once and wait for the main menu (the first start is slow), then close it.
+2. Download `FMTracker.dll` from this repo's [latest release](https://github.com/rodrigotaciano25/fm-scoring/releases/latest)
+   and put it in `BepInEx\plugins\FMTracker\` (make the folder).
+3. Load your save and press **F9**. A few seconds later, FMTracker writes your league's squads to
+   `BepInEx\fmtracker\saves\<your save>\league\`. From then on it does this by itself every 7 in-game days.
+4. Ask your assistant to "open my compare page" (or run `python score.py --open compare`).
+
+The plugin is built for one FM27 version; after a big FM update it may need rebuilding. A Steam update or "verify files" can
+delete BepInEx: reinstall it and the plugin if the page stops updating. If FM isn't installed in Steam's default folder,
+add `fmtracker_dir = "<FM folder>/BepInEx/fmtracker"` to `config.toml`.
 
 ### Your formation (the grid page)
 
