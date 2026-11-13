@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+__THEME__
+  .bar { flex-wrap: wrap; }
+  .seg { display: flex; gap: 2px; align-items: center; }
+  .seg .lbl { color: var(--dim); margin-right: 4px; }
+  .seg button { font: inherit; color: var(--dim); background: transparent; border: 1px solid var(--line); padding: 0 8px; cursor: pointer; }
+  .seg button.on { color: var(--desk); background: var(--cyan); border-color: var(--cyan); font-weight: 700; }
+  .seg label { color: var(--fg); margin-right: 10px; cursor: pointer; }
+  .seg label.off { color: var(--dim); }
+  select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); padding: 0 4px; }
+  .tile { background: var(--bg); border: 2px solid var(--blue); padding: 12px 14px; min-width: 0; margin-bottom: 10px; }
+  .ttitle { color: var(--cyan); font-weight: 700; }
+  .tsub { color: var(--dim); font-size: 12px; margin-bottom: 6px; }
+  .tsub b { color: var(--fg); font-weight: normal; }
+  .empty { color: var(--dim); padding: 30px 0; }
+  .empty code { color: var(--fg); }
+  svg { display: block; width: 100%; overflow: visible; font: 11px "JetBrains Mono", monospace; }
+  .band { fill: var(--line); fill-opacity: .18; }
+  .edge { stroke-width: 1.5; } .edge.hi { stroke: var(--green); } .edge.lo { stroke: var(--blue); }
+  .edge-label { font-size: 11px; } .edge-label.hi { fill: var(--green); } .edge-label.lo { fill: var(--blue); }
+  .col { cursor: default; }
+  .col rect.b { fill: var(--blue); fill-opacity: .85; }
+  .col rect.b.best { fill: var(--green); } .col rect.b.worst { fill: var(--red); }
+  .col:hover rect.b { fill-opacity: 1; }
+  .col rect.hit { fill: transparent; }
+  .avg { stroke: var(--fg); stroke-width: 2; stroke-opacity: .85; }
+  .val { fill: var(--fg); font-weight: 700; font-size: 11px; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+  .xl { fill: var(--dim); font-size: 11px; } .col:hover .xl { fill: var(--cyan); }
+  table.rank { border-collapse: collapse; width: 100%; font-size: 12px; }
+  table.rank th { color: var(--dim); font-weight: normal; text-align: right; padding: 0 6px; white-space: nowrap; }
+  table.rank th:first-child, table.rank td:first-child { text-align: left; }
+  table.rank td { text-align: right; padding: 0 6px; white-space: nowrap; }
+  table.rank tr.me td { color: var(--orange); font-weight: 700; }
+  table.rank tr:hover td { background: var(--hover); }
+  table.rank td.best { color: var(--green); } table.rank td.worst { color: var(--red); }
+  .scroll { overflow-x: auto; }
+  #tip { position: fixed; pointer-events: none; background: var(--desk); border: 1px solid var(--line); padding: 6px 10px;
+         display: none; z-index: 5; font-size: 12px; line-height: 1.5; white-space: nowrap; }
+  #tip .nm { color: var(--cyan); font-weight: 700; } #tip .d { color: var(--dim); }
+  #tip .g { color: var(--green); } #tip .r { color: var(--red); }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="pages">__NAV__</span>
+  <span class="seg"><span class="lbl">club</span><select id="club"></select></span>
+  <span class="seg" id="tabs"></span>
+  <span class="seg" id="groups"><span class="lbl">show only</span></span>
+</div>
+<div class="tile">
+  <div class="ttitle" id="title"></div>
+  <div class="tsub" id="sub"></div>
+  <div id="chart"></div>
+</div>
+<div class="tile"><div class="ttitle">League table of averages</div>
+  <div class="tsub">every club's average per attribute, for the same players; green = highest, red = lowest. Click a club to compare it.</div>
+  <div class="scroll" id="table"></div></div>
+<div id="tip"></div>
+<script>
+const DATA = __DATA__, SITE = __SITE__, STORE = "fm:__SAVE__:compare";
+const ATTRS = DATA.attrs;  // FMTracker name -> [FM's name, 3-letter label]
+const GROUPS = { GK: "Goalkeepers", DEF: "Defenders", MID: "Midfielders", ATT: "Strikers" };
+const TECH = ["Corners", "Crossing", "Dribbling", "Finishing", "FirstTouch", "FreeKicks", "Heading", "LongShots", "LongThrows",
+              "Marking", "Passing", "PenaltyTaking", "Tackling", "Technique"];
+const MENT = ["Aggression", "Anticipation", "Bravery", "Composure", "Concentration", "Decisions", "Determination", "Flair",
+              "Leadership", "Movement", "Positioning", "Teamwork", "Vision", "WorkRate"];
+const PHYS = ["Acceleration", "Agility", "Balance", "JumpingReach", "NaturalFitness", "Pace", "Stamina", "Strength"];
+const GKA = ["AerialReach", "CommandOfArea", "Communication", "Eccentricity", "Handling", "Kicking", "OneOnOnes", "Reflexes",
+             "RushingOut", "TendencyToPunch", "Throwing"];
+const mean = vs => vs.length ? vs.reduce((s, v) => s + v, 0) / vs.length : null;
+// Tabs as in FM's Team Report > Comparison. "groups": which position groups the tab is about (null = the checkboxes).
+// Overview's columns are categories: each one the average of its attributes.
+const TABS = {
+  Overview: { cats: { Technical: TECH, Mental: MENT, Physical: PHYS, Goalkeeping: GKA } },
+  Goalkeepers: { attrs: [...GKA.filter(a => a !== "TendencyToPunch"), "Agility", "Decisions", "Concentration", "Positioning"], groups: ["GK"] },
+  Defence: { attrs: ["Marking", "Tackling", "Positioning", "Heading", "JumpingReach", "Strength", "Bravery", "Concentration",
+                     "Anticipation", "Aggression", "Composure", "Pace"] },
+  Midfield: { attrs: ["Passing", "Vision", "FirstTouch", "Technique", "Decisions", "Teamwork", "WorkRate", "Stamina",
+                      "Composure", "Anticipation", "Movement", "Dribbling"] },
+  Attack: { attrs: ["Finishing", "Dribbling", "Movement", "Composure", "Flair", "FirstTouch", "Technique", "Acceleration",
+                    "Pace", "Agility", "LongShots", "Crossing", "Heading"] },
+  Physical: { attrs: PHYS }, Mental: { attrs: MENT }, Technical: { attrs: TECH },
+};
+
+const state = { club: DATA.managed, tab: "Overview", groups: ["DEF", "MID", "ATT"] };
+try { Object.assign(state, JSON.parse(localStorage.getItem(STORE)) || {}); } catch (e) {}
+const save = () => { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) {} };
+const set = (k, v) => { state[k] = v; save(); render(); };
+
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent?.appendChild(e); return e; };
+const f2 = v => v == null ? "–" : v.toFixed(2);
+const ord = n => n + (Math.floor(n / 10) % 10 === 1 ? "th" : { 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th");
+
+/** Columns of the current tab: [{ key, label, name, value(club) }]. */
+function columns() {
+  const tab = TABS[state.tab], groups = tab.groups || state.groups;
+  const players = c => c.players.filter(p => groups.includes(p.group));
+  if (tab.cats) return Object.entries(tab.cats)
+    .filter(([cat]) => cat === "Goalkeeping" ? groups.includes("GK") : groups.some(g => g !== "GK"))
+    .map(([cat, attrs]) => ({ key: cat, label: cat, name: cat + " (average of " + attrs.length + " attributes)",
+      value: c => mean(players(c).filter(p => cat === "Goalkeeping" ? p.group === "GK" : cat !== "Technical" || p.group !== "GK")
+                               .map(p => mean(attrs.filter(a => p.a[a] != null).map(a => p.a[a]))).filter(v => v != null)) }));
+  return tab.attrs.map(a => ({ key: a, label: ATTRS[a][1], name: ATTRS[a][0],
+                               value: c => mean(players(c).map(p => p.a[a]).filter(v => v != null)) }));
+}
+
+/** Per column: every club's value, sorted best first, and the league's average (of the club averages, as FM does). */
+function stats(cols) {
+  return cols.map(col => {
+    const per = DATA.clubs.map(c => ({ club: c.name, v: col.value(c) })).filter(x => x.v != null).sort((a, b) => b.v - a.v);
+    return { ...col, per, avg: mean(per.map(x => x.v)), hi: per[0]?.v, lo: per[per.length - 1]?.v };
+  });
+}
+
+const tip = document.getElementById("tip");
+function hover(s, e) {
+  if (!s) { tip.style.display = "none"; return; }
+  const i = s.per.findIndex(x => x.club === state.club), me = s.per[i];
+  const best = s.per[0], worst = s.per[s.per.length - 1];
+  tip.innerHTML = `<div class="nm">${s.name}</div>` +
+    (me ? `<div>${state.club}: <b>${f2(me.v)}</b> · <span class="${i === 0 ? "g" : i === s.per.length - 1 ? "r" : ""}">${ord(i + 1)} of ${s.per.length}</span></div>` : "") +
+    `<div class="d">best ${f2(best.v)} · ${best.club}</div><div class="d">average ${f2(s.avg)}</div>` +
+    `<div class="d">worst ${f2(worst.v)} · ${worst.club}</div>`;
+  tip.style.display = "block";
+  const x = e.clientX + 14, y = e.clientY + 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(x, innerWidth - w - 8) + "px"; tip.style.top = Math.min(y, innerHeight - h - 8) + "px";
+}
+
+/** FM-style: each column runs from the league's lowest club average (bottom) to the highest (top). */
+function chart(ss) {
+  const box = document.getElementById("chart"); box.innerHTML = "";
+  const W = box.clientWidth, H = 390, T = 22, B = 40, L = 4, R = 4, top = T, bottom = H - B;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, height: H }, box);
+  el("rect", { x: L, y: top, width: W - L - R, height: bottom - top, class: "band" }, svg);
+  el("line", { x1: L, x2: W - R, y1: top, y2: top, class: "edge hi" }, svg);
+  el("line", { x1: L, x2: W - R, y1: bottom, y2: bottom, class: "edge lo" }, svg);
+  const comp = DATA.competition || "the league";
+  el("text", { x: W / 2, y: top - 6, "text-anchor": "middle", class: "edge-label hi" }, svg).textContent = `highest average in ${comp}`;
+  el("text", { x: W / 2, y: bottom + 34, "text-anchor": "middle", class: "edge-label lo" }, svg).textContent = `lowest average in ${comp}`;
+  const n = ss.length, slot = (W - L - R) / n, bw = Math.min(slot * 0.62, 90);
+  ss.forEach((s, i) => {
+    const me = s.per.find(x => x.club === state.club); if (!me) return;
+    const y = v => s.hi === s.lo ? (top + bottom) / 2 : bottom - (v - s.lo) / (s.hi - s.lo) * (bottom - top);
+    const cx = L + slot * i + slot / 2, g = el("g", { class: "col" }, svg);
+    const rank = s.per.indexOf(me), cls = rank === 0 ? " best" : rank === s.per.length - 1 ? " worst" : "";
+    const yt = y(me.v);
+    el("rect", { x: cx - bw / 2, y: Math.min(yt, bottom - 2), width: bw, height: Math.max(bottom - yt, 2), class: "b" + cls }, g);
+    el("line", { x1: cx - bw / 2 - 4, x2: cx + bw / 2 + 4, y1: y(s.avg), y2: y(s.avg), class: "avg" }, g);
+    el("text", { x: cx, y: Math.min(yt + 14, bottom - 6), "text-anchor": "middle", class: "val" }, g).textContent = f2(me.v);
+    el("text", { x: cx, y: bottom + 13, "text-anchor": "middle", class: "xl" }, g).textContent = s.label;
+    const hit = el("rect", { x: cx - slot / 2, y: top, width: slot, height: bottom - top + 16, class: "hit" }, g);
+    hit.addEventListener("mousemove", e => hover(s, e)); hit.addEventListener("mouseleave", () => hover(null));
+  });
+}
+
+function table(ss) {
+  const clubs = [...DATA.clubs].map(c => c.name);
+  const val = (s, club) => s.per.find(x => x.club === club)?.v;
+  const overall = club => mean(ss.map(s => { const i = s.per.findIndex(x => x.club === club); return i < 0 ? null : i + 1; }).filter(v => v != null));
+  clubs.sort((a, b) => overall(a) - overall(b));
+  let h = `<table class="rank"><tr><th>club</th><th title="average rank over the columns">avg rank</th>` +
+    ss.map(s => `<th title="${s.name}">${s.label}</th>`).join("") + "</tr>";
+  for (const club of clubs) {
+    h += `<tr class="${club === state.club ? "me" : ""}" data-club="${club.replace(/"/g, "&quot;")}" style="cursor:pointer"><td>${club}</td><td>${f2(overall(club))}</td>` +
+      ss.map(s => { const v = val(s, club); return `<td class="${v === s.hi ? "best" : v === s.lo ? "worst" : ""}">${f2(v)}</td>`; }).join("") + "</tr>";
+  }
+  const box = document.getElementById("table"); box.innerHTML = h + "</table>";
+  box.querySelectorAll("tr[data-club]").forEach(tr => tr.addEventListener("click", () => set("club", tr.dataset.club)));
+}
+
+function controls() {
+  const sel = document.getElementById("club");
+  sel.innerHTML = DATA.clubs.map(c => c.name).sort().map(c => `<option${c === state.club ? " selected" : ""}>${c}</option>`).join("");
+  sel.onchange = () => set("club", sel.value);
+  const tabs = document.getElementById("tabs"); tabs.innerHTML = "";
+  for (const t of Object.keys(TABS)) {
+    const b = document.createElement("button"); b.textContent = t; if (t === state.tab) b.className = "on";
+    b.onclick = () => set("tab", t); tabs.appendChild(b);
+  }
+  const gs = document.getElementById("groups"); gs.querySelectorAll("label").forEach(l => l.remove());
+  const fixed = TABS[state.tab].groups;
+  for (const [g, name] of Object.entries(GROUPS)) {
+    const on = (fixed || state.groups).includes(g), l = document.createElement("label");
+    l.innerHTML = `<input type="checkbox"${on ? " checked" : ""}${fixed ? " disabled" : ""}> ${name}`;
+    if (fixed) l.className = "off";
+    l.querySelector("input").onchange = e => set("groups", e.target.checked ? [...state.groups, g] : state.groups.filter(x => x !== g));
+    gs.appendChild(l);
+  }
+}
+
+function render() {
+  if (!DATA.clubs.length) {
+    document.querySelector(".tile").innerHTML = `<div class="empty">No league squads yet. FMTracker writes them by itself
+      (after its weekly snapshot) to <code>&lt;FM&gt;/BepInEx/fmtracker/saves/&lt;save&gt;/league/</code>; then run score.py again.<br>Looked in: <code>${DATA.source}</code></div>`;
+    document.querySelectorAll(".tile")[1].style.display = "none";
+    return;
+  }
+  if (!DATA.clubs.some(c => c.name === state.club)) state.club = (DATA.clubs.find(c => c.managed) || DATA.clubs[0]).name;
+  controls();
+  const ss = stats(columns()).filter(s => s.per.length);
+  const club = DATA.clubs.find(c => c.name === state.club), groups = TABS[state.tab].groups || state.groups;
+  const n = club.players.filter(p => groups.includes(p.group)).length;
+  document.getElementById("title").textContent = `${state.club} · ${state.tab}`;
+  document.getElementById("sub").innerHTML = `${DATA.competition} · ${DATA.clubs.length} clubs · first-team squads on <b>${DATA.date}</b> · ` +
+    `${n} ${state.club} players · bar = club average, white line = league average · hover a column for best / worst`;
+  if (!ss.length) { document.getElementById("chart").innerHTML = `<div class="empty">No players in the selected positions.</div>`; }
+  else chart(ss);
+  table(ss);
+}
+
+document.addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === "SELECT") return;
+  if (SITE.pages[e.key] && SITE.pages[e.key] !== "compare") location.href = SITE.pages[e.key] + ".html";
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    const t = Object.keys(TABS), i = t.indexOf(state.tab) + (e.key === "ArrowRight" ? 1 : -1);
+    set("tab", t[(i + t.length) % t.length]);
+  }
+});
+let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 150); });
+render();
+</script>
+</body>
+</html>

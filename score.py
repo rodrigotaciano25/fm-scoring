@@ -23,11 +23,34 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 CONFIG = ROOT / "config.toml"
-PAGES = ["squad", "grid", "elsewhere", "last", "filters", "charts", "staff", "last_staff", "staff_filters", "settings"]  # keys 1-9 then 0, in this order
+PAGES = ["squad", "grid", "elsewhere", "last", "filters", "charts", "staff", "last_staff", "staff_filters", "settings", "compare"]
+PAGE_KEYS = "1234567890-"  # PAGES' keys, in order
+TEMPLATES = {"charts": "charts.html", "compare": "compare.html"}  # every other page uses template.html
+DEFAULT_FMTRACKER_DIR = "C:/Program Files (x86)/Steam/steamapps/common/Football Manager 27/BepInEx/fmtracker"
+# FMTracker's attribute names (FM's internal ones) -> as FM shows them, and FM's 3-letter column labels
+FM_ATTRS = {
+    "Corners": ("Corners", "Cor"), "Crossing": ("Crossing", "Cro"), "Dribbling": ("Dribbling", "Dri"),
+    "Finishing": ("Finishing", "Fin"), "FirstTouch": ("First Touch", "Fir"), "FreeKicks": ("Free Kick Taking", "Fre"),
+    "Heading": ("Heading", "Hea"), "LongShots": ("Long Shots", "Lon"), "LongThrows": ("Long Throws", "L Th"),
+    "Marking": ("Marking", "Mar"), "Passing": ("Passing", "Pas"), "PenaltyTaking": ("Penalty Taking", "Pen"),
+    "Tackling": ("Tackling", "Tck"), "Technique": ("Technique", "Tec"),
+    "Aggression": ("Aggression", "Agg"), "Anticipation": ("Anticipation", "Ant"), "Bravery": ("Bravery", "Bra"),
+    "Composure": ("Composure", "Cmp"), "Concentration": ("Concentration", "Cnt"), "Decisions": ("Decisions", "Dec"),
+    "Determination": ("Determination", "Det"), "Flair": ("Flair", "Fla"), "Leadership": ("Leadership", "Ldr"),
+    "Movement": ("Off The Ball", "OtB"), "Positioning": ("Positioning", "Pos"), "Teamwork": ("Teamwork", "Tea"),
+    "Vision": ("Vision", "Vis"), "WorkRate": ("Work Rate", "Wor"),
+    "Acceleration": ("Acceleration", "Acc"), "Agility": ("Agility", "Agi"), "Balance": ("Balance", "Bal"),
+    "JumpingReach": ("Jumping Reach", "Jum"), "NaturalFitness": ("Natural Fitness", "Nat"), "Pace": ("Pace", "Pac"),
+    "Stamina": ("Stamina", "Sta"), "Strength": ("Strength", "Str"),
+    "AerialReach": ("Aerial Reach", "Aer"), "CommandOfArea": ("Command Of Area", "Cmd"), "Communication": ("Communication", "Com"),
+    "Eccentricity": ("Eccentricity", "Ecc"), "Handling": ("Handling", "Han"), "Kicking": ("Kicking", "Kic"),
+    "OneOnOnes": ("One On Ones", "1v1"), "Reflexes": ("Reflexes", "Ref"), "RushingOut": ("Rushing Out (Tendency)", "Rus"),
+    "TendencyToPunch": ("Punching (Tendency)", "Pun"), "Throwing": ("Throwing", "Thr"),
+}
 META = {"Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division"}  # every other column is an attribute
 STAFF_META = {"Name", "Club", "Age", "Job", "Personality"}
 LEFT_FOOTED = {"Fairly Strong", "Strong", "Very Strong"}
-PARTIAL_SQUAD = re.compile(r"-(u\d+s?|reserves)$")  # source of a youth/reserve squad screen: not the whole club
+PARTIAL_SQUAD = re.compile(r"-(u\d+s?|reserves|first-team)$")  # source of a youth/reserve squad screen: not the whole club
 SEARCH_MIN_WEIGHT = 2  # attributes weighted below this are left out of the filters page's search minimums
 IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 GRID_PCT_AGE = 24  # the grid page shows vs Age next to the score for senior players this age and under
@@ -39,9 +62,17 @@ def load_toml(path):
 
 
 def money(text):
-    """'£1.5K p/w' -> 1500.0, '€2.1M' -> 2100000.0; None for N/A or blank. Any currency symbol."""
-    m = re.match(r"\D*?([\d.]+)\s*([KMB]?)", text.strip(), re.I)
-    return float(m.group(1)) * {"": 1, "K": 1e3, "M": 1e6, "B": 1e9}[m.group(2).upper()] if m else None
+    """'£1.5K p/w' -> 1500.0, '€2.1M' -> 2100000.0; None for N/A or blank. Any currency symbol, before or after.
+    European formats too: '40,5M€' -> 40500000.0, '1.500€' -> 1500.0 (dots or commas grouping thousands)."""
+    m = re.match(r"\D*?(\d[\d.,]*)\s*([KMB]?)", text.strip(), re.I)
+    if not m:
+        return None
+    num = m.group(1).rstrip(".,")
+    if re.fullmatch(r"\d{1,3}([.,])\d{3}(\1\d{3})*", num):
+        num = re.sub(r"[.,]", "", num)  # 1.500 / 1,500: thousands separators
+    else:
+        num = num.replace(",", ".")      # 40,5: decimal comma
+    return float(num) * {"": 1, "K": 1e3, "M": 1e6, "B": 1e9}[m.group(2).upper()]
 
 
 def weighted(attrs, groups):
@@ -169,6 +200,38 @@ def charts(rows, squad, w, cfg):
                     "Acceleration": attrs.get("Acceleration"), "Pace": attrs.get("Pace"), "Jumping Reach": attrs.get("Jumping Reach"), "Agility": attrs.get("Agility")})
     return {"positions": [*w["outfield"], "GK"], "players": out,
             "managed": cfg["managed_club"], "division": cfg.get("division")}
+
+
+def position_group(position):
+    """FM's natural position string ('D (C)', 'M/AM (R)', 'DM, M (C)', 'GK') -> GK / DEF / MID / ATT, by its first position."""
+    first = re.split(r"[,/ (]", (position or "").strip(), maxsplit=1)[0].upper()
+    return {"GK": "GK", "D": "DEF", "WB": "DEF", "DM": "MID", "M": "MID", "AM": "MID", "ST": "ATT"}.get(first)
+
+
+def compare(config, cfg):
+    """Page 11: the latest league squads FMTracker exported (<fmtracker_dir>/saves/<save>/league/league_<date>.json),
+    for the managed club. save.toml's `fmtracker_save` picks the plugin's save folder; else the most recently written one
+    whose export is of the managed club."""
+    base = Path(config.get("fmtracker_dir", DEFAULT_FMTRACKER_DIR)).expanduser() / "saves"
+    exports = []  # (path, export) of the managed club, in the chosen plugin save folder
+    for f in base.glob(f"{cfg.get('fmtracker_save', '*')}/league/league_*.json"):
+        try:
+            export = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if export.get("managedClub") == cfg["managed_club"]:
+            exports.append((f, export))
+    if not exports:
+        return {"source": str(base), "clubs": [], "attrs": FM_ATTRS}
+    folder = max(exports, key=lambda x: x[0].stat().st_mtime)[0].parent  # the save played most recently
+    path, export = max(((f, e) for f, e in exports if f.parent == folder), key=lambda x: x[1].get("inGameDate") or "")
+    clubs = [{"name": c.get("name") or "?", "managed": bool(c.get("managed")),
+              "players": [{"name": p.get("name"), "age": p.get("age"), "pos": p.get("position") or "",
+                           "group": position_group(p.get("position")), "a": p.get("attributes") or {}}
+                          for p in c.get("players", []) if p.get("attributes")]}
+             for c in export.get("clubs", [])]
+    return {"source": str(path), "date": export.get("inGameDate"), "competition": export.get("competition"),
+            "managed": cfg["managed_club"], "clubs": [c for c in clubs if c["players"]], "attrs": FM_ATTRS}
 
 
 def grid(squad, w, cfg, intake):
@@ -390,6 +453,7 @@ def build(save, config):
                                            if staff[r["name"]]["files"] & last_staff or r["name"] in last_staff_names]),
         "staff_filters": ([], staff_filters(club_staff, roles, w.get("staff_words", {}), w.get("staff_names", {}))),
         "settings": ([], settings(config, save)),
+        "compare": ([], compare(config, cfg)),
     }
 
 
@@ -398,7 +462,7 @@ def write_pages(save, config, cfg, pages):
     out.mkdir(parents=True, exist_ok=True)
     home = html.escape(cfg["short_name"])
     labels = {p: home if p == "squad" else p.replace("_", " ") for p in PAGES}
-    keys = {p: str(i % 10) for i, p in enumerate(PAGES, 1)}  # the tenth page is key 0
+    keys = dict(zip(PAGES, PAGE_KEYS))
     dates = [f.name[:10] for d in ("obs", "staff") for f in (ROOT / "saves" / save / d).glob("*.csv")]
     site = json.dumps({"pages": {keys[p]: p for p in PAGES}, "currency": config.get("currency", "£"),
                        "gameDate": max(dates, default=None)})  # the latest game date: the history overlay's "years ago"
@@ -408,14 +472,14 @@ def write_pages(save, config, cfg, pages):
     for page, (columns, data) in pages.items():
         nav = "".join(f'<a href="{p}.html"{" class=\"on\"" if p == page else ""}>{keys[p]} {labels[p]}</a>' for p in PAGES)
         data = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")  # a "</script>" in a name can't end the script
-        template = (ROOT / ("charts.html" if page == "charts" else "template.html")).read_text(encoding="utf-8")
+        template = (ROOT / TEMPLATES.get(page, "template.html")).read_text(encoding="utf-8")
         page_html = (template.replace("__THEME__", theme).replace("__NAV__", nav)
                      .replace("__TITLE__", f"{home} · {labels[page]}").replace("__SAVE__", save)
                      .replace("__HOME__", home).replace("__PAGE__", page).replace("__SITE__", site)
                      .replace("__COLS__", json.dumps(columns)).replace("__WEIGHTS__", weights).replace("__DATA__", data))
         (out / f"{page}.html").write_text(page_html, encoding="utf-8")
     print(f"[{save}] out/{save}/: " + ", ".join(f"{p} ({len(d)})" for p, (_, d) in pages.items()
-                                                 if p not in ("grid", "filters", "charts", "staff_filters", "settings")))
+                                                 if p not in ("grid", "filters", "charts", "staff_filters", "settings", "compare")))
     return out
 
 

@@ -1,5 +1,6 @@
 # Settings for this computer: copy to config.toml, or run `python3 score.py init`.
-# The settings page (key 9) shows them.
+# The settings page (key 0) shows them.
 active_save = "my-club"            # saves/<this>/save.toml
 screenshots_dir = "~/Desktop"      # where your screenshots are saved (Windows: "~/Pictures/Screenshots")
 currency = "£"                     # the money symbol FM shows
+# fmtracker_dir = "C:/Program Files (x86)/Steam/steamapps/common/Football Manager 27/BepInEx/fmtracker"  # page - (compare); this is the default

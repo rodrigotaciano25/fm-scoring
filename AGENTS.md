@@ -2,7 +2,7 @@
 
 Scores Football Manager players on weighted attributes and tracks them over game time.
 FM has no data export, so the user takes screenshots of in-game player tables and an agent
-transcribes them to CSV. `score.py` turns those into ten pages per save (keys 1–9, then 0):
+transcribes them to CSV. `score.py` turns those into eleven pages per save (keys 1–9, then 0 and -):
 
 1. **squad**: the club the user manages
 2. **grid**: the squad by formation slot (save.toml's `grid`): starter, backup, then third (to sell or loan out) by position score, then the
@@ -16,6 +16,9 @@ transcribes them to CSV. `score.py` turns those into ten pages per save (keys 1�
 8. **last_staff**: just the staff from the most recent set of staff screenshots
 9. **staff_filters**: per staff role, the club's best staff and suggested minimums (as FM's words) for FM's staff search
 0. **settings**: what's in `config.toml` and the save's `save.toml`
+-. **compare**: FM24's Team Report > Comparison: the club's average per attribute against every club in its league
+   (bar from the league's lowest to highest club average, white line = league average), by tab (Overview, Goalkeepers,
+   Defence, Midfield, Attack, Physical, Mental, Technical) and position group. Data comes from the FMTracker plugin, not screenshots
 
 Runs on macOS, Windows and Linux: stdlib Python 3.11+ only (`python3` here; on Windows it may be `python` or `py`).
 
@@ -23,8 +26,8 @@ Runs on macOS, Windows and Linux: stdlib Python 3.11+ only (`python3` here; on W
 
 | Path | Purpose |
 |---|---|
-| `config.toml` | This computer's settings: `active_save` (the save being worked on; only ever touch that save), `screenshots_dir`, `currency`. Gitignored; `python3 score.py init` writes it, `config.example.toml` shows it. |
-| `saves/<save>/save.toml` | `weights` (→ `weights/<name>.toml`), `managed_club` (exactly as FM shows it), `short_name` (page 1 label), `division` (the managed club's, as FM shows it; page 6's default), `last_batch` (obs files for page 4), `last_staff_batch` (staff files for page 8), `last_staff_names` (staff already observed to add to page 8), `youth_age`, `grid` (page 2's formation slots: `label`, weights `pos`, `left = true` for left-footed only), `grid_pins` (player → slot label), `grid_senior` (youngsters moved up to the senior columns), `grid_youth` (intake players kept: youth columns), `grid_exclude` (left off the grid) `released` (players gone since the latest squad screen) `signed` (players joined since) `recalled` (back from loan since) and `aliases` (a name FM cut off in an obs file → the full name). |
+| `config.toml` | This computer's settings: `active_save` (the save being worked on; only ever touch that save), `screenshots_dir`, `currency`, optional `fmtracker_dir` (the plugin's output folder, default the Steam FM27 install's `BepInEx/fmtracker`). Gitignored; `python3 score.py init` writes it, `config.example.toml` shows it. |
+| `saves/<save>/save.toml` | `weights` (→ `weights/<name>.toml`), `managed_club` (exactly as FM shows it), `short_name` (page 1 label), `division` (the managed club's, as FM shows it; page 6's default), `last_batch` (obs files for page 4), `last_staff_batch` (staff files for page 8), `last_staff_names` (staff already observed to add to page 8), `youth_age`, `grid` (page 2's formation slots: `label`, weights `pos`, `left = true` for left-footed only), `grid_pins` (player → slot label), `grid_senior` (youngsters moved up to the senior columns), `grid_youth` (intake players kept: youth columns), `grid_exclude` (left off the grid) `released` (players gone since the latest squad screen) `signed` (players joined since) `recalled` (back from loan since) and `aliases` (a name FM cut off in an obs file → the full name), optional `fmtracker_save` (the plugin's save folder for page -; default: the most recently written one with this club). |
 | `saves/<save>/obs/*.csv` | Observations: `<YYYY-MM-DD>_<source>_<view>.csv`, one per screenshot set. Append-only. |
 | `saves/<save>/staff/*.csv` | Staff observations: `<YYYY-MM-DD>_<source>.csv` (`search-coach`). Append-only. |
 | `weights/<name>.toml` | Position weights (`[outfield.*]`, `[gk]`), age benchmarks, and staff scoring: `[staff_words]` (FM's words → numbers) and `[staff.<role>]` (the role's column label, then attribute weights). |
@@ -33,6 +36,7 @@ Runs on macOS, Windows and Linux: stdlib Python 3.11+ only (`python3` here; on W
 | `score.py` | `python3 score.py [--save S] [--open PAGE]` → `out/<save>/*.html`. Also `init` (first-time setup) and `screenshots` (list new ones). Stdlib only. |
 | `template.html` | Every page but charts. Its `?` overlay is the reference for keys and filter syntax. |
 | `charts.html` | Page 6: hand-drawn SVG charts. |
+| `compare.html` | Page -: the league squad comparison. |
 | `theme.css` | Omarchy / Tokyo Night theme, inlined into every page. |
 | `out/` | Generated; gitignored. |
 | `README.md` | For people: what this is and how to set up a new save. |
@@ -116,7 +120,7 @@ If FM renames an attribute, use the new name in the CSV header and in the weight
   observation. Enter/double-click a player for their history by date.
 - **Left** = yes for Fairly Strong or better (`LEFT_FOOTED` in `score.py`).
 - **Left the club:** a managed-club player missing from the latest squad screen (non-`search-` file) moves to
-  elsewhere as `left <club>`. A youth or reserve squad screen (source ending `-u18s`, `-u21s`, `-reserves`: `PARTIAL_SQUAD`)
+  elsewhere as `left <club>`. A youth or reserve squad screen (source ending `-u18s`, `-u21s`, `-reserves`, `-first-team`: `PARTIAL_SQUAD`)
   shows only part of the club, so it updates its players but doesn't count as the squad screen. The user saying a player's gone ("sold X", "released X") before the next squad screen: add them
   to `released = [...]` in save.toml (name as in the obs files); don't edit obs files.
   Likewise a signing ("signed X") goes in `signed = [...]`: they count as the managed club's until a newer squad screen. A player back from loan ("recalled X") goes in `recalled = [...]`: clears their `out` flag.
@@ -137,6 +141,11 @@ If FM renames an attribute, use the new name in the CSV header and in the weight
   (starter / backup / third); those players are placed first. `{ col = "third" }` alone: their best position. A pinned player out
   on loan is placed too. `grid_exclude` leaves players off the grid altogether (e.g. contracts running out). Everyone still goes in by score, but unpinned
   players avoid (at the same depth) slots a pinned player is still to fill.
+- **Compare page:** FMTracker (BepInEx plugin, separate project) writes `<fmtracker_dir>/saves/<save>/league/league_<date>.json` by itself
+  after its weekly snapshot: every first-team squad in the competition the club plays most fixtures in. score.py reads the latest.
+  Position group = the first position of FM's natural position string (GK; D/WB → defenders; DM/M/AM → midfielders; ST → strikers).
+  Club average = mean over its players in the ticked groups; league average = mean of the club averages. The Overview tab's
+  columns are the mean of each category's attributes per player (Technical leaves keepers out; Goalkeeping is keepers only).
 - **Filters page:** the squad's top 3 per position (top 1 for GK). **Search ≥** = their rounded average
   for attributes weighted ≥ 2 (`SEARCH_MIN_WEIGHT`), for use as minimums in FM's search.
 - **Staff filters page:** the same per staff role: the top 3 of the managed club's staff (at the club in its latest staff
