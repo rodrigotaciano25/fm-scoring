@@ -49,6 +49,16 @@ __THEME__
   #detail .tile { width: min(1000px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: auto; }
   #detail table + .ttitle { margin-top: 14px; }
   #detail .chg { font-size: 11px; margin-left: 4px; }
+  #detail .ttitle .seg { display: inline-flex; margin-left: 10px; font-weight: 400; }
+  #detail th.num, #detail td.num { text-align: center; }
+  #detail .attrcols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 24px; }
+  #detail .grph { color: var(--accent); font-weight: 700; margin: 4px 0 2px; }
+  #detail .attrcols table { width: 100%; }
+  #detail .attrcols tr.lo td:first-child { color: var(--dim); }
+  #detail .attrcols tr.hl td:first-child { color: var(--fg); font-weight: 700; box-shadow: inset 3px 0 0 var(--accent); padding-left: 8px; }
+  #detail .attrcols tr.hl td:last-child { font-weight: 700; }
+  #detail .attrcols tr.hl td:last-child .chg { font-weight: 400; }
+  #detail td.wtc { color: var(--dim); font-size: 11px; width: 32px; }
   .trend { display: inline-block; margin-left: 6px; cursor: help; vertical-align: -1px; }
   .trend svg { display: block; width: 8px; height: 11px; fill: currentColor; }
   .trend.down svg { transform: rotate(180deg); }
@@ -101,7 +111,7 @@ __THEME__
   <table>
     <tr><td><b>1</b> … <b>9</b> <b>0</b></td><td>__HOME__ · grid · elsewhere · last screenshots · filters · charts · staff · last staff screenshots · staff filters · settings</td></tr>
     <tr><td><b>← ↑ ↓ →</b></td><td>move the cell cursor</td></tr>
-    <tr><td><b>enter</b></td><td>player (or staff) history over time (or double-click a row, or click a name on the grid; <b>esc</b> closes)</td></tr>
+    <tr><td><b>enter</b></td><td>player (or staff) history over time (scores every ~3 months; double-click a row, or click a name on the grid; <b>esc</b> closes)</td></tr>
     <tr><td><b>c</b> or <b>⌘C</b></td><td>copy the cursor's player name, for FM's search (or drag-select any text)</td></tr>
     <tr><td><b>s</b></td><td>sort by the cursor's column (again to reverse)</td></tr>
     <tr><td><b>/</b> or <b>f</b></td><td>filter box (<b>enter</b> / <b>esc</b> to leave it)</td></tr>
@@ -301,20 +311,41 @@ const yearsAgo = d => {
   return y === "0.0" ? "" : `${y} years`;
 };
 
-// Player history: one row per observation date, then attribute values by date
+const QUARTER_DAYS = 91;
+// Player attributes as FM groups them (keepers: FM's goalkeeper technicals, outfielders: no goalkeeping)
+const ATTR_GROUPS = {
+  Technical: ["Corners", "Crossing", "Dribbling", "Finishing", "First Touch", "Free Kick Taking", "Heading", "Long Shots",
+    "Long Throws", "Marking", "Passing", "Penalty Taking", "Tackling", "Technique"],
+  Mental: ["Aggression", "Anticipation", "Bravery", "Composure", "Concentration", "Decisions", "Determination", "Flair",
+    "Leadership", "Off The Ball", "Positioning", "Teamwork", "Vision", "Work Rate"],
+  Physical: ["Acceleration", "Agility", "Balance", "Jumping Reach", "Natural Fitness", "Pace", "Stamina", "Strength"],
+  Goalkeeping: ["Aerial Reach", "Command of Area", "Communication", "Eccentricity", "First Touch", "Handling", "Kicking",
+    "One on Ones", "Passing", "Punching (Tendency)", "Reflexes", "Rushing Out (Tendency)", "Throwing"],
+};
+const GK_GROUPS = ["Goalkeeping", "Mental", "Physical"], OUTFIELD_GROUPS = ["Technical", "Mental", "Physical"];
+let attrAll = false, attrRole = null, attrFor = null;  // attrRole: the position whose weights are highlighted (null = best), per player  // the history's attribute table: core (weighted) attributes only, or all of them by FM's groups
+// Player history: one row per ~3 months, then attribute values by date
 function showDetail(r) {
   const H = r.history, last = H[H.length - 1], vs = H.some(h => h.vsAge != null);
   const pos = COLS.filter(c => c.fmt === "f1" && c.key !== "score" && H.some(h => h[c.key] != null)).map(c => c.key);
   const chg = (v, p) => p == null || Math.abs(v - p) < 0.05 ? "" :
     `<span class="chg ${v > p ? "t4" : "t0"}">${FMT.delta(v - p)}</span>`;
-  const scoreRows = H.map((h, i) => {
-    const p = H[i - 1];
+  // One row per ~3 months (QUARTER_DAYS), plus the first, the latest and any club change; changes are against the previous row shown
+  const SH = [];
+  H.forEach((h, i) => {
+    const prev = SH[SH.length - 1];
+    if (!prev || i === H.length - 1 || h.club !== H[i - 1].club || (new Date(h.date) - new Date(prev.date)) / 864e5 >= QUARTER_DAYS) SH.push(h);
+  });
+  const scoreRows = SH.map((h, i) => {
+    const p = SH[i - 1];
     return `<tr><td>${h.date}</td><td class="text">${h.club}</td><td class="num">${h.age ?? "–"}</td>` +
       pos.map(k => `<td class="num ${tier(h[k], RANGE.f1)}">${FMT.f1(h[k])}${chg(h[k], p?.[k])}</td>`).join("") +
       `<td class="text">${h.best ?? "–"}</td>${vs ? `<td class="num ${tier(h.vsAge, RANGE.pct)}">${FMT.pct(h.vsAge)}</td>` : ""}</tr>`;
   }).join("");
   // Attributes ranked by the best position's (or staff role's) weight, alphabetical within a weight
-  const wpos = [last.best].filter(k => WEIGHTS[k]), wt = a => wpos.length ? WEIGHTS[wpos[0]][a] ?? 0 : 0;
+  if (attrFor !== r.name) { attrFor = r.name; attrRole = null; }
+  const role = !("job" in r) && pos.includes(attrRole) ? attrRole : last.best;
+  const wpos = [role].filter(k => WEIGHTS[k]), wt = a => wpos.length ? WEIGHTS[wpos[0]][a] ?? 0 : 0;
   const attrs = Object.keys(last.attrs).sort((a, b) => wt(b) - wt(a) || a.localeCompare(b));
   const AH = windowDates(H), gr = H.length > 1;
   // Growth: latest known value minus the first, over every observation
@@ -322,23 +353,46 @@ function showDetail(r) {
     const vs = H.map(h => h.attrs[a]).filter(v => v != null), g = vs.length > 1 ? vs[vs.length - 1] - vs[0] : 0;
     return `<td class="num wt">${g ? `<span class="${g > 0 ? "t4" : "t0"}">${g > 0 ? "+" : "−"}${Math.abs(g)}</span>` : ""}</td>`;
   };
-  const attrRows = attrs.map(a => `<tr><td>${a}</td>` +
+  const player = !("job" in r);
+  const attrRow = a => `<tr><td>${a}</td>` +
     wpos.map(() => `<td class="num wt${gr ? " nb" : ""}">${wt(a) ? "×" + wt(a) : "–"}</td>`).join("") + (gr ? growth(a) : "") + AH.map((h, i) => {
     const v = h.attrs[a], p = AH[i + 1]?.attrs[a];
     return v == null ? `<td class="num dim">–</td>` :
       `<td class="num ${tier(v, RANGE.attr)}">${v}${p == null || p === v ? "" : `<span class="chg ${v > p ? "t4" : "t0"}">${v > p ? "+" : "−"}${Math.abs(v - p)}</span>`}</td>`;
-  }).join("") + "</tr>").join("");
+  }).join("") + "</tr>";
+  // Players: the best position's weighted attributes, or (toggle) all of them in FM's groups. Staff: every attribute.
+  const core = attrs.filter(a => wt(a) > 0);
+  const groups = (last.best === "GK" ? GK_GROUPS : OUTFIELD_GROUPS).map(g => [g, ATTR_GROUPS[g].filter(a => a in last.attrs)]);
+  const all = player && (attrAll || !core.length);
+  const attrRows = !player ? attrs.map(attrRow).join("") : core.map(attrRow).join("");
+  // All: FM's layout, one column per group: latest value, growth since the first observation, the chosen role's weight
+  const gcell = a => {
+    const vs = H.map(h => h.attrs[a]).filter(v => v != null), g = vs.length > 1 ? vs[vs.length - 1] - vs[0] : 0;
+    return g ? `<span class="chg ${g > 0 ? "t4" : "t0"}">${g > 0 ? "+" : "−"}${Math.abs(g)}</span>` : "";
+  };
+  const allCols = `<div class="attrcols">${groups.map(([g, as]) => `<div><div class="grph">${g}</div><table><tbody>${as.map(a => {
+    const v = last.attrs[a];
+    return `<tr class="${wt(a) ? "hl" : "lo"}"><td>${a}</td><td class="num wtc">${wt(a) ? "×" + wt(a) : ""}</td>` +
+      `<td class="num ${tier(v, RANGE.attr)}">${v ?? "–"}${gcell(a)}</td></tr>`;
+  }).join("")}</tbody></table></div>`).join("")}</div>`;
+  const roleSeg = player && pos.length > 1 ? `<span class="seg roleseg"><span class="lbl">weights</span>${pos.filter(k => WEIGHTS[k]).map(k =>
+    `<button data-role="${k}" class="${k === role ? "on" : ""}">${k}</button>`).join("")}</span>` : "";
+  const profile = player && [["Personality", r.personality], ["Media handling", r.media],
+    ["Traits", r.traits && r.traits.split("; ").join(" · ")]].filter(([, v]) => v);
   document.getElementById("detailbody").innerHTML = `
     <div class="ttitle">${r.name} <span class="sub">· ${[r.club, r.age != null && r.age + "y",
       ...("job" in r ? [r.job, r.personality] : ["left foot " + (last.leftFoot ?? "–"), r.loan && loanLabel(r)])].filter(Boolean).join(" · ")}</span></div>
     ${H.length === 1 ? `<div class="sub">Only one observation so far (${last.date}); changes appear once you add screenshots from a later game date.</div>` : ""}
     <table><thead><tr><th>Date</th><th>Club</th><th class="num">Age</th>${pos.map(k => `<th class="num">${k}</th>`).join("")}<th>Best</th>${vs ? `<th class="num">vs Age</th>` : ""}</tr></thead>
       <tbody>${scoreRows}</tbody></table>
-    <div class="ttitle">Attributes</div>
-    <table><thead>${wpos.length ? `<tr><th></th><th class="group wt${gr ? " nb" : ""}">weight</th>${gr ? `<th class="group wt">growth</th>` : ""}<th class="group" colspan="${AH.length}">value</th></tr>` : ""}
+    <div class="ttitle">Attributes ${player && core.length ? `<span class="seg attrseg"><button data-all="" class="${attrAll ? "" : "on"}">core</button><button data-all="1" class="${attrAll ? "on" : ""}">all</button></span>` : ""}${roleSeg}</div>
+    ${all ? allCols : `<table><thead>${wpos.length ? `<tr><th></th><th class="group wt${gr ? " nb" : ""}">weight</th>${gr ? `<th class="group wt">growth</th>` : ""}<th class="group" colspan="${AH.length}">value</th></tr>` : ""}
       <tr><th class="ago"></th>${wpos.map(() => `<th class="wt ago${gr ? " nb" : ""}"></th>`).join("")}${gr ? `<th class="wt ago"></th>` : ""}${AH.map(h => `<th class="num ago">${yearsAgo(h.date)}</th>`).join("")}</tr>
       <tr><th></th>${wpos.map(k => `<th class="num wt${gr ? " nb" : ""}">${k}</th>`).join("")}${gr ? `<th class="num wt">${yearsAgo(H[0].date)}</th>` : ""}${AH.map(h => `<th class="num">${h.date}</th>`).join("")}</tr></thead>
-      <tbody>${attrRows}</tbody></table>`;
+      <tbody>${attrRows}</tbody></table>`}
+    ${profile && profile.length ? `<div class="ttitle">Profile</div><table class="profile"><tbody>${profile.map(([k, v]) => `<tr><td>${k}</td><td class="text">${v}</td></tr>`).join("")}</tbody></table>` : ""}`;
+  document.querySelectorAll("#detailbody .attrseg button").forEach(b => b.onclick = () => { attrAll = !!b.dataset.all; showDetail(r); });
+  document.querySelectorAll("#detailbody .roleseg button").forEach(b => b.onclick = () => { attrRole = b.dataset.role; showDetail(r); });
   detail.classList.add("show");
 }
 

@@ -13,7 +13,8 @@ transcribes them to CSV. `score.py` turns those into eleven pages per save (keys
 6. **charts**: players with a match rating (a league-wide search) by position: role scores, score vs wage,
    score vs average rating, and Acceleration, Pace, Jumping Reach or Agility (a toggle; Agility is keepers only) by position and vs rating, with the squad overlaid
 7. **staff**: every staff member observed, scored for each role (manager, coach groups, scout, physio…), with department
-   (Coaching / Scouting / Medical, from the job title: `DEPARTMENTS`) and, for the club's staff, team (First team / II / U18) buttons
+   (Coaching / Scouting / Medical, from the job title: `DEPARTMENTS`) and, for the club's staff, team (First team / II / U18) buttons.
+   Doctors, chief doctors and medics (`FIXED_JOB`) are left off every staff page and the compare page's staff mode: FM fills those jobs itself, so they can't be hired or fired
 8. **last_staff**: just the staff from the most recent set of staff screenshots
 9. **staff_filters**: per staff role, the club's best staff and suggested minimums (as FM's words) for FM's staff search
 0. **settings**: what's in `config.toml` and the save's `save.toml`
@@ -48,7 +49,7 @@ Runs on macOS, Windows and Linux: stdlib Python 3.11+ only (`python3` here; on W
 With the FMTracker plugin installed, the user doesn't need squad screenshots. Each `score.py` run writes the plugin's latest snapshot
 of the managed club (every team at the club, plus players out on loan) to `obs/<date>_fmtracker_{outfield,gk}.csv`: every snapshot date not imported yet (the newest file of each date), with a `Squad` column (FirstTeam, U21, U18, OnLoan) that page 1 filters on. That file counts
 as a full squad screen. It has every attribute, plus Left Foot, Wage and Transfer Value from plugin 0.3.2 on (older snapshots leave them blank, and the
-previous values carry forward). Loan: `in` when away from their contract club with one of ours as the loan club, `out` when on loan elsewhere.
+previous values carry forward). From 0.3.7 on, the league read (page -) runs only after an F9 snapshot, not after the weekly auto-snapshot (it stalls the game; `LeagueSquadsEveryDays` > 0 brings back automatic reads). Loan: `in` when away from their contract club with one of ours as the loan club, `out` when on loan elsewhere.
 Commit the new files like any observation. Screenshots are still how players at other clubs get in (searches, shortlists).
 From plugin 0.3.5 on, it also writes `staff/<date>_fmtracker.csv`: the club's staff roster (FM's job title and `Team` for each), and from 0.3.6
 its staff attributes too (FM gives numbers 1-20, 0 = not known; written as the nearest `[staff_words]` word, as a screenshot would show; `STAFF_ATTRS`). It counts as the club's staff screen: club staff missing from it show as `left <club>`.
@@ -128,7 +129,12 @@ If FM renames an attribute, use the new name in the CSV header and in the weight
   every `[outfield.*]` position, keepers (anyone in a `gk` observation) only `GK`. **Best** = the highest.
 - **vs Age** = best ÷ `age_benchmark` for their age (clamped to the table's ends); 100% = on track.
 - **Over time:** each attribute is its latest known value; club, age, wage and value come from the latest
-  observation. Enter/double-click a player for their history by date.
+  observation. Enter/double-click a player for their history by date: the score table shows a row every ~3 months (`QUARTER_DAYS` in template.html),
+  plus the first and latest observation and any club change, each with its change since the row above (the weekly FMTracker snapshots would otherwise give one row per week).
+  Its attribute table shows a position's weighted (core) attributes by date; `all` shows every attribute side by side in FM's groups (`ATTR_GROUPS`:
+  Technical / Mental / Physical columns, keepers Goalkeeping / Mental / Physical), latest value and growth. The `weights` buttons pick the
+  position (default: best) whose weighted attributes are the core list and are highlighted in `all`. Below it, Profile: Personality, Media Handling and Traits from
+  FMTracker imports (`PROFILE` columns; media handling and traits from plugin 0.3.7 on).
 - **Trend arrow** after a name (`TREND_RULES`): ▲ green / ▼ red when the player's net change in the attributes their scoring weights use (keepers: `[gk]`; outfielders: any `[outfield.*]`; summed over those known at both dates)
   since their earliest observation in the last 6 months is ±3 or more, or in the last 12 months ±5 or more. Hover for the change; filter with `rising` / `falling`.
 - **Left** = yes for Fairly Strong or better (`LEFT_FOOTED` in `score.py`).

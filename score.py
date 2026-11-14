@@ -48,7 +48,9 @@ FM_ATTRS = {
     "OneOnOnes": ("One on Ones", "1v1"), "Reflexes": ("Reflexes", "Ref"), "RushingOut": ("Rushing Out (Tendency)", "Rus"),
     "TendencyToPunch": ("Punching (Tendency)", "Pun"), "Throwing": ("Throwing", "Thr"),
 }
-META = {"Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division", "Squad"}  # every other column is an attribute
+# Profile columns (FMTracker imports): personality, media handling style, traits ("; "-separated)
+PROFILE = {"Personality": "personality", "Media Handling": "media", "Traits": "traits"}
+META = {"Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division", "Squad", *PROFILE}  # every other column is an attribute
 STAFF_META = {"Name", "Club", "Age", "Job", "Personality", "Team"}
 # FMTracker's staff attribute names -> the staff screenshots' column names (weights' [staff.*] use these)
 STAFF_ATTRS = {"Attacking": "Attacking", "Defending": "Defending", "CoachingFitness": "Fitness", "GoalkeepingCoaching": "Goalkeeping",
@@ -77,6 +79,8 @@ def staff_word(raw, words):
 DEPARTMENTS = [("Medical", ("physio", "sports scien", "medic", "doctor", "nutrition", "rehab")),
                ("Scouting", ("scout", "recruitment", "analyst", "director of football", "technical director", "loan")),
                ("Coaching", ("manager", "coach", "assistant", "head of youth", "youth development", "set piece"))]
+# Jobs FM fills by itself (the club has them or not; they can't be hired or fired): left off every staff page and the comparison
+FIXED_JOB = re.compile(r"\b(doctor|medic)\b", re.I)
 LEFT_FOOTED = {"Fairly Strong", "Strong", "Very Strong"}
 PARTIAL_SQUAD = re.compile(r"-(u\d+s?|reserves|first-team)$")  # source of a youth/reserve squad screen: not the whole club
 SEARCH_MIN_WEIGHT = 2  # attributes weighted below this are left out of the filters page's search minimums
@@ -148,6 +152,7 @@ def load_players(obs_dir, aliases=None):
         if row.get("Transfer Value"):
             lo, _, hi = row["Transfer Value"].partition(" - ")
             snap["value"] = (money(lo), money(hi or lo))
+        snap.update({key: row[col] for col, key in PROFILE.items() if row.get(col)})
         if row.get("Squad"):  # FMTracker imports: the team at the club (FirstTeam, U21, U18, OnLoan)
             snap["team"] = row["Squad"]
         if "Loan" in row:  # squad screens only: "in" (blue name), "out" (red name), "trial" (yellow name) or blank
@@ -162,7 +167,7 @@ def player_row(name, p, w):
     """A player's latest state, plus their history: one entry per observation date."""
     positions = {"GK": w["gk"]} if p["keeper"] else w["outfield"]
     ages = sorted(int(a) for a in w["age_benchmark"])
-    known = {"leftFoot": None, "wage": None, "value": (None, None), "loan": None, "team": None}
+    known = {"leftFoot": None, "wage": None, "value": (None, None), "loan": None, "team": None, **dict.fromkeys(PROFILE.values())}
     history = []
     for date, snap, attrs in timeline(p["dates"]):
         known.update({k: v for k, v in snap.items() if k in known})
@@ -181,6 +186,7 @@ def player_row(name, p, w):
         **{k: v for k, v in latest.items() if k not in ("date", "leftFoot", "attrs")},  # rating: latest observation only
         "left": None if known["leftFoot"] is None else "yes" if known["leftFoot"] in LEFT_FOOTED else "no",
         "loan": known["loan"], "team": known["team"], "wage": known["wage"], "valueLo": known["value"][0], "value": known["value"][1],  # value sorts on the top of FM's range
+        **{k: known[k] for k in PROFILE.values()},
         "history": history,
     }
 
@@ -354,7 +360,7 @@ def write_fmtracker_staff(cfg, target, path, snap, words):
 
 def write_fmtracker_obs(cfg, obs_dir, date, path, snap):
     managed = cfg["managed_club"]
-    meta = ["Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division", "Squad"]
+    meta = ["Name", "Club", "Age", "Left Foot", "Wage", "Transfer Value", "Loan", "Minutes", "Rating", "Division", "Squad", *PROFILE]
     attrs = [name for name, _ in FM_ATTRS.values()]
     rows = {"outfield": [], "gk": []}
     for p in snap.get("players", []):
@@ -369,7 +375,8 @@ def write_fmtracker_obs(cfg, obs_dir, date, path, snap):
                "Loan": "out" if out else "in" if loan_in else "",
                "Minutes": p.get("minutesThisSeason") or 0 if p.get("averageRating") else "",
                "Rating": p.get("averageRating") or "", "Division": cfg.get("division", "") if p.get("averageRating") else "",
-               "Squad": p.get("squad") or ""}
+               "Squad": p.get("squad") or "", "Personality": p.get("personality") or "",
+               "Media Handling": p.get("mediaHandling") or "", "Traits": "; ".join(p.get("traits") or [])}
         row.update({FM_ATTRS[k][0]: v for k, v in p["attributes"].items() if k in FM_ATTRS})
         rows["gk" if (p.get("position") or "").strip().upper() == "GK" else "outfield"].append(row)
     for view, rs in rows.items():
@@ -412,7 +419,7 @@ def compare(config, cfg):
               "staff": [{"name": s.get("name"), "job": s.get("job"), "dept": department(s.get("job")),
                          "a": {col: words[w] for key, col in STAFF_ATTRS.items()
                                if (w := staff_word((s.get("attributes") or {}).get(key), words))}}
-                        for s in c.get("staff") or [] if s.get("name")]}
+                        for s in c.get("staff") or [] if s.get("name") and not FIXED_JOB.search(s.get("job") or "")]}
              for c in export.get("clubs", [])]
     return {"source": str(path), "date": export.get("inGameDate"), "competition": export.get("competition"),
             "staffClubs": [c for c in staff if c["staff"]],
@@ -624,7 +631,7 @@ def build(save, config):
 
     roles = w.get("staff", {})
     staff = load_staff(save_dir / "staff", w.get("staff_words", {}))
-    staff_rows = [staff_row(n, p, roles) for n, p in staff.items()]
+    staff_rows = [r for r in (staff_row(n, p, roles) for n, p in staff.items()) if not FIXED_JOB.search(r["job"] or "")]
     check_listed(cfg, "last_staff_batch", {f for p in staff.values() for f in p["files"]}, "names files with no staff")
     check_listed(cfg, "last_staff_names", staff.keys(), "has staff never observed")
     last_staff, last_staff_names = set(cfg.get("last_staff_batch", [])), set(cfg.get("last_staff_names", []))
